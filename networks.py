@@ -9,7 +9,6 @@ class VanillaDQN(nn.Module):
     """Vanilla deep Q network. (https://arxiv.org/abs/1312.5602)"""
     def __init__(self, input_shape, num_actions, conv_fmaps=32, fc_fmaps=512):
         super(VanillaDQN, self).__init__()
-        assert len(input_shape) == 3
 
         self.input_shape = input_shape  # In format CHW.
         self.num_actions = num_actions
