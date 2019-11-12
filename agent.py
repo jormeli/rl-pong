@@ -16,7 +16,7 @@ from replay_memory import ReplayMemory
 
 class Agent():
     def __init__(self, input_shape, num_actions, minibatch_size=32,
-                 replay_memory_size=500000, gamma=0.98, beta0=0.9, beta1=0.999,
+                 replay_memory_size=25000, gamma=0.98, beta0=0.9, beta1=0.999,
                  learning_rate=5e-4, device='cuda', **kwargs):
         self.agent_name = 'NBC-pong'
         self.device = torch.device(device)
@@ -30,13 +30,13 @@ class Agent():
         self.minibatch_size = minibatch_size
         self.gamma = gamma
 
-        self.state_history = []
-        self.next_state_history = []
+        self.state_history = np.zeros(input_shape)
+        self.next_state_history = np.zeros(input_shape)
 
     def reset(self):
         """Reset agent's state after an episode has finished."""
-        self.state_history = []
-        self.next_state_history = []
+        self.state_history = np.zeros(self.input_shape)
+        self.next_state_history = np.zeros(self.input_shape)
 
     def get_name(self):
         """Returns the name of the agent."""
@@ -56,12 +56,12 @@ class Agent():
         state = (state - 0.5) / 0.5
 
         state_history = self.state_history
-        if not state_history:
-            state_history = self.history_length * [state]
+        if np.all(state_history == 0):
+            state_history[:, ...] = state
         else:
-            state_history.pop(0)
-            state_history.append(state)
-        state = np.concatenate(state_history)[None, :]  # Add batch dimension.
+            state_history[:-1] = state_history[1:]
+            state_history[-1] = state
+        state = state_history[None, :]  # Add batch dimension.
 
         if random.random() > epsilon:  # Use Q-values.
             with torch.no_grad():
@@ -110,17 +110,19 @@ class Agent():
         next_state = (next_state - 0.5) / 0.5
 
         # If there is no previous states/next_states stack the current frame n times.
-        if not self.state_history:
-            self.state_history = self.history_length * [state]
-            self.next_state_history = self.history_length * [next_state]
-        else:  # TODO: This is inefficient.
-            _ = self.state_history.pop(0)  # Drop first item from history.
-            _ = self.next_state_history.pop(0)
-            self.state_history.append(state)  # Add new state.
-            self.next_state_history.append(next_state)
+        if np.all(self.state_history == 0):
+            self.state_history[:, ...] = state
+            self.next_state_history[:, ...] = next_state
+        else:
+            self.state_history[:-1] = self.state_history[1:]
+            self.state_history[-1] = state
 
+            self.next_state_history[:-1] = self.next_state_history[1:]
+            self.next_state_history[-1] = next_state
+
+        # TODO: Save memory and add images as uint8 to replay memory, i.e., scale them later.
         action = torch.Tensor([action]).long()
         reward = torch.tensor([reward], dtype=torch.float32)
-        next_state = torch.from_numpy(np.concatenate(self.next_state_history)).float()
-        state = torch.from_numpy(np.concatenate(self.state_history)).float()
+        next_state = torch.from_numpy(self.next_state_history).float()
+        state = torch.from_numpy(self.state_history).float()
         self.memory.push(state, action, next_state, reward, done)
