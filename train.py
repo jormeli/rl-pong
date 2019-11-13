@@ -12,7 +12,7 @@ if __name__ == "__main__":
     update_target_freq = 1000
     player_id = 1
     history_length = 4
-    agent_config = EasyDict(input_shape=[history_length, 200, 200], num_actions=3)
+    agent_config = EasyDict(input_shape=[history_length, 84, 84], num_actions=3)
 
     # Call training loop.
     training_loop(num_episodes, player_id, update_target_freq, agent_config)    

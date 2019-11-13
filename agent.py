@@ -1,11 +1,11 @@
 """Implementation of Pong agent."""
 
 import numpy as np
-from skimage import color
+import PIL.Image
+import random
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import random
 
 from networks import VanillaDQN
 from replay_memory import ReplayMemory
@@ -20,8 +20,7 @@ class Agent():
                  learning_rate=5e-4, device='cuda', **kwargs):
         self.agent_name = 'NBC-pong'
         self.device = torch.device(device)
-        self.input_shape = input_shape  # In CHW.
-        self.history_length = input_shape[0]
+        self.input_shape = input_shape  # In CHW. (Shape of preprocessed frames)
         self.num_actions = num_actions
         self.policy_net = VanillaDQN(input_shape, num_actions)
         self.target_net = VanillaDQN(input_shape, num_actions)
@@ -30,13 +29,13 @@ class Agent():
         self.minibatch_size = minibatch_size
         self.gamma = gamma
 
-        self.state_history = np.zeros(input_shape)
-        self.next_state_history = np.zeros(input_shape)
+        self.state_history = np.zeros(input_shape, dtype=np.uint8)
+        self.next_state_history = np.zeros(input_shape, dtype=np.uint8)
 
     def reset(self):
         """Reset agent's state after an episode has finished."""
-        self.state_history = np.zeros(self.input_shape)
-        self.next_state_history = np.zeros(self.input_shape)
+        self.state_history = np.zeros(self.input_shape, dtype=np.uint8)
+        self.next_state_history = np.zeros(self.input_shape, dtype=np.uint8)
 
     def get_name(self):
         """Returns the name of the agent."""
@@ -46,26 +45,32 @@ class Agent():
         """Loads model's parameters from path."""
         pass
 
+    def _preprocess_state(self, state):
+        """Apply preprocessing (grayscale, resize) to a state."""
+        # Resize image.
+        state = PIL.Image.fromarray(state).resize(self.input_shape[1:], resample=PIL.Image.NEAREST)
+
+        # RGB -> grayscale and convert to numpy array.
+        state = np.array(state.convert('L'))
+
+        return state
+
     def get_action(self, state, epsilon=0.05):
         """Determine action for a given state."""
-        # TODO: Add preprocess method, since it's required in two places.
-        # Preprocess states. (RGB -> grayscale).
-        state = color.rgb2gray(state)[None, :]  # To CHW.
-
-        # Scale from [0, 1] to [-1, 1].
-        state = (state - 0.5) / 0.5
+        # Preprocess state.
+        state = self._preprocess_state(state)
 
         state_history = self.state_history
         if np.all(state_history == 0):
             state_history[:, ...] = state
         else:
-            state_history[:-1] = state_history[1:]
-            state_history[-1] = state
+            state_history[1:] = state_history[:-1]
+            state_history[0] = state
         state = state_history[None, :]  # Add batch dimension.
 
         if random.random() > epsilon:  # Use Q-values.
             with torch.no_grad():
-                state = torch.from_numpy(state).float()
+                state = torch.from_numpy(state)
                 q_values = self.policy_net(state)
                 return torch.argmax(q_values).item()
         else:  # Select action uniform random.
@@ -101,28 +106,21 @@ class Agent():
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
     def store_transition(self, state, action, next_state, reward, done):
-        # Preprocess states. (RGB -> grayscale).
-        state = color.rgb2gray(state)[None, :]  # To CHW.
-        next_state = color.rgb2gray(next_state)[None, :]
+        # Preprocess next state.
+        preprocessed_next_state = self._preprocess_state(next_state)
 
-        # Scale from [0, 1] to [-1, 1].
-        state = (state - 0.5) / 0.5
-        next_state = (next_state - 0.5) / 0.5
-
-        # If there is no previous states/next_states stack the current frame n times.
-        if np.all(self.state_history == 0):
-            self.state_history[:, ...] = state
-            self.next_state_history[:, ...] = next_state
+        # If there is no previous next_states stack the current frame n times.
+        # Note state history is saved as np.float32 but replay memory uses np.uint8 to
+        # save memory.
+        if np.all(self.next_state_history == 0):
+            self.next_state_history[:, ...] = preprocessed_next_state
         else:
-            self.state_history[:-1] = self.state_history[1:]
-            self.state_history[-1] = state
+            self.next_state_history[1:] = self.next_state_history[:-1]
+            self.next_state_history[0] = preprocessed_next_state
 
-            self.next_state_history[:-1] = self.next_state_history[1:]
-            self.next_state_history[-1] = next_state
-
-        # TODO: Save memory and add images as uint8 to replay memory, i.e., scale them later.
+        # Push frames to replay memory.
         action = torch.Tensor([action]).long()
         reward = torch.tensor([reward], dtype=torch.float32)
-        next_state = torch.from_numpy(self.next_state_history).float()
-        state = torch.from_numpy(self.state_history).float()
+        next_state = torch.from_numpy(self.next_state_history)
+        state = torch.from_numpy(self.state_history)
         self.memory.push(state, action, next_state, reward, done)

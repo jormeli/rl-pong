@@ -37,6 +37,11 @@ class VanillaDQN(nn.Module):
 
     def forward(self, x):
         """Forward pass the network."""
+        # Convert to float and scale from [0, 255] to [-1, 1].
+        x = x.float()
+        x = (x - 127.5) / 127.5
+
+        # Feed x through layers.
         x = self.conv_features(x)
         x = x.view(x.shape[0], -1)  # Flatten (N, C, H, W) -> (N, C * H * W).
         x = self.fc_layers(x)

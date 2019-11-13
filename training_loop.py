@@ -5,6 +5,7 @@
 import gym
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 
 from agent import Agent
 from utils import EasyDict
@@ -77,6 +78,9 @@ def training_loop(num_episodes, player_id, update_target_freq, agent_config, ren
         
         # Reset agent's internal state.
         agent.reset()
+
+        if ep % 100 == 0:
+            torch.save(agent.policy_net.state_dict(), 'agent.mdl')
 
         #if ep % 5 == 4:
         #    env.switch_sides()
