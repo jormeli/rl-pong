@@ -35,28 +35,30 @@ def training_loop(num_episodes, player_id, update_target_freq, save_every_n_fram
     # Set the names for both SimpleAIs
     env.set_names(agent.get_name(), opponent.get_name())
 
-    # Parameters for GLIE.
-    target_eps = 0.1
-    reach_target_at_ep = 10000000
-    a = np.round(target_eps * reach_target_at_ep / (1 - target_eps))
+    # Parameters for epsilon-greedy policy.
+    epsilon_start = 1.0
+    epsilon_final = 0.01
+    epsilon_decay = 75000
+
+    epsilon_by_frame = lambda frame_idx: epsilon_final + (epsilon_start - epsilon_final) * np.exp(-frame_idx / epsilon_decay)
 
     # Parameters for training.
     start_training_at_frame = 50000
     train_freq = 4
 
     # Housekeeping
-    states = []
     wins = 0
     frames_seen = 0
 
     for ep in range(0, num_episodes):
         # Reset the Pong environment
-        (agent_state, opp_state), terminal = env.reset(), 0
+        (agent_state, opp_state) = env.reset()
         done = False
-        frame_count = 0
+        step = 0
+        actions_taken = []
 
         # Compute new epsilon.
-        epsilon = a / (a + ep)
+        epsilon = epsilon_by_frame(frames_seen)
 
         while not done:
             # Get actions from agent and opponent.
@@ -64,20 +66,21 @@ def training_loop(num_episodes, player_id, update_target_freq, save_every_n_fram
             opp_action = opponent.get_action(opp_state)
 
             # Step the environment and get the rewards and new observations
-            (agent_next_state, opp_next_state), (agent_reward, opp_reward), done, info = env.step((agent_action, opp_action))
+            (agent_next_state, opp_next_state), (agent_reward, _), done, info = env.step((agent_action, opp_action))
 
             # Store transitions.
             agent.store_transition(agent_state, agent_action, agent_next_state, agent_reward, done)
 
             # See if theres enough frames to start training.            
             if frames_seen > start_training_at_frame:
-                if frame_count % train_freq == 0:  # Update agent every 4th frame.
-                    agent.td_loss_double_dqn()
+                if step % train_freq == 0:  # Update agent every 4th frame.
+                    #agent.td_loss_double_dqn()
+                    agent.td_loss()
 
-                if frame_count % update_target_freq == update_target_freq - 1:  # Update target network.
+                if frames_seen % update_target_freq == update_target_freq - 1:  # Update target network.
                     agent.update_target_network()
 
-            # Count the wins
+            # Count the wins.
             if agent_reward == 10:
                 wins += 1
 
@@ -86,13 +89,16 @@ def training_loop(num_episodes, player_id, update_target_freq, save_every_n_fram
 
             agent_state = agent_next_state
             opp_state = opp_next_state
-            frame_count += 1
+            actions_taken.append(agent_action)
+            step += 1
+            frames_seen += 1
 
-        print('episode %i, end at frame %i, tot. frames seen %i, wr %0.2f' % (ep, frame_count, frames_seen, wins / (ep + 1)))
-        
+        act_counts, _ = np.histogram(actions_taken, bins=[0, 1, 2, 3])
+        actions = 'stay %i, up %i, down %i' % (act_counts[0], act_counts[1], act_counts[2])
+        print('episode %i, end frame %i, tot. frames %i, eps %0.2f, %s, wins %i, losses %i' % (ep, step, frames_seen, epsilon, actions, wins, ep + 1 - wins))
+
         # Reset agent's internal state.
         agent.reset()
-        frames_seen += frame_count
 
         if ep % save_every_n_frames == 0:
             torch.save(agent.policy_net.state_dict(), 'agent.mdl')

@@ -5,6 +5,7 @@ import PIL.Image
 import random
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 
 from networks import VanillaDQN
@@ -15,8 +16,8 @@ from replay_memory import ReplayMemory
 #TODO: Voisi tehda jonkinlaisen base agentin, josta muut agentit voisi peria asioita.
 
 class Agent():
-    def __init__(self, input_shape, num_actions, minibatch_size=128,
-                 replay_memory_size=100000, gamma=0.98, beta0=0.9, beta1=0.999,
+    def __init__(self, input_shape, num_actions, minibatch_size=256,
+                 replay_memory_size=500000, gamma=0.98, beta0=0.9, beta1=0.999,
                  learning_rate=1e-4, device='cuda', **kwargs):
         self.agent_name = 'NBC-pong'
         self.device = torch.device(device)
@@ -43,7 +44,8 @@ class Agent():
 
     def load_model(self, model_path):
         """Loads model's parameters from path."""
-        pass
+        self.policy_net.load_state_dict(torch.load(model_path, map_location=self.device))
+        self.policy_net.eval()
 
     def _preprocess_state(self, state):
         """Apply preprocessing (grayscale, resize) to a state."""
@@ -95,8 +97,32 @@ class Agent():
         q_value = q_values.gather(1, actions).squeeze(1)
         next_q_value = next_q_state_values.gather(1, torch.max(next_q_values, 1)[1].unsqueeze(1)).squeeze(1)
         expected_q_value = rewards + self.gamma * next_q_value * (1 - dones)
-        loss = (q_value - expected_q_value.detach()).pow(2).mean()
-            
+        loss = F.smooth_l1_loss(q_value, expected_q_value)  #(q_value - expected_q_value.detach()).pow(2).mean()
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+    def td_loss(self):
+        """Compute TD loss."""
+        transitions = self.memory.sample(self.minibatch_size)
+
+        # Extract states, next_states, rewards, done signals from transitions
+        states = torch.stack([transition.state for transition in transitions], dim=0)
+        next_states = torch.stack([transition.next_state for transition in transitions], dim=0)
+        actions = torch.stack([transition.action for transition in transitions], dim=0)
+        rewards = torch.stack([transition.reward for transition in transitions], dim=0).squeeze(1)
+        dones = torch.from_numpy(np.array([int(transition.done) for transition in transitions]))
+
+        # Get Q-values from current network and target network.
+        q_values = self.policy_net.forward(states)
+        next_q_values = self.policy_net.forward(next_states)
+
+        q_value = q_values.gather(1, actions).squeeze(1)
+        next_q_value = next_q_values.max(1)[0]
+        expected_q_value = rewards + self.gamma * next_q_value * (1 - dones)
+        loss = F.smooth_l1_loss(q_value, expected_q_value)  #(q_value - expected_q_value.detach()).pow(2).mean()
+
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
