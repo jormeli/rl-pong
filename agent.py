@@ -97,7 +97,7 @@ class Agent():
         q_value = q_values.gather(1, actions).squeeze(1)
         next_q_value = next_q_state_values.gather(1, torch.max(next_q_values, 1)[1].unsqueeze(1)).squeeze(1)
         expected_q_value = rewards + self.gamma * next_q_value * (1 - dones)
-        loss = F.smooth_l1_loss(q_value, expected_q_value)  #(q_value - expected_q_value.detach()).pow(2).mean()
+        loss = F.smooth_l1_loss(q_value, expected_q_value.detach())  #(q_value - expected_q_value.detach()).pow(2).mean()
 
         self.optimizer.zero_grad()
         loss.backward()
@@ -121,7 +121,7 @@ class Agent():
         q_value = q_values.gather(1, actions).squeeze(1)
         next_q_value = next_q_values.max(1)[0]
         expected_q_value = rewards + self.gamma * next_q_value * (1 - dones)
-        loss = F.smooth_l1_loss(q_value, expected_q_value)  #(q_value - expected_q_value.detach()).pow(2).mean()
+        loss = F.smooth_l1_loss(q_value, expected_q_value.detach())  #(q_value - expected_q_value.detach()).pow(2).mean()
 
         self.optimizer.zero_grad()
         loss.backward()
