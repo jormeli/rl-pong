@@ -15,9 +15,9 @@ from replay_memory import ReplayMemory
 #TODO: Voisi tehda jonkinlaisen base agentin, josta muut agentit voisi peria asioita.
 
 class Agent():
-    def __init__(self, input_shape, num_actions, minibatch_size=32,
-                 replay_memory_size=25000, gamma=0.98, beta0=0.9, beta1=0.999,
-                 learning_rate=5e-4, device='cuda', **kwargs):
+    def __init__(self, input_shape, num_actions, minibatch_size=128,
+                 replay_memory_size=100000, gamma=0.98, beta0=0.9, beta1=0.999,
+                 learning_rate=1e-4, device='cuda', **kwargs):
         self.agent_name = 'NBC-pong'
         self.device = torch.device(device)
         self.input_shape = input_shape  # In CHW. (Shape of preprocessed frames)
@@ -95,8 +95,7 @@ class Agent():
         q_value = q_values.gather(1, actions).squeeze(1)
         next_q_value = next_q_state_values.gather(1, torch.max(next_q_values, 1)[1].unsqueeze(1)).squeeze(1)
         expected_q_value = rewards + self.gamma * next_q_value * (1 - dones)
-        
-        loss = (q_value - expected_q_value.data).pow(2).mean()
+        loss = (q_value - expected_q_value.detach()).pow(2).mean()
             
         self.optimizer.zero_grad()
         loss.backward()
