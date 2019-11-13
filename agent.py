@@ -12,7 +12,6 @@ from networks import VanillaDQN
 from replay_memory import ReplayMemory
 
 
-#TODO: Tehaan tanne implementaatiot eri agenteista.
 #TODO: Voisi tehda jonkinlaisen base agentin, josta muut agentit voisi peria asioita.
 
 class Agent():
@@ -57,7 +56,7 @@ class Agent():
 
         return state
 
-    def get_action(self, state, epsilon=0.05):
+    def get_action(self, state, epsilon=0.1):
         """Determine action for a given state."""
         # Preprocess state.
         state = self._preprocess_state(state)

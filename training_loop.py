@@ -1,7 +1,5 @@
 """Training loop."""
 
-#TODO: Tanne varsinainen training loop.
-
 import gym
 import matplotlib.pyplot as plt
 import numpy as np
@@ -20,7 +18,7 @@ def make_pong_environment(fps=30, scale=1):
     return env
 
 
-def training_loop(num_episodes, player_id, update_target_freq, save_every_n_frames, agent_config, render=False):
+def training_loop(num_episodes, player_id, update_target_freq, save_every_n_ep, agent_config, render=False):
     """Training loop for Pong agents."""
     # Make the environment
     env = make_pong_environment()
@@ -37,9 +35,8 @@ def training_loop(num_episodes, player_id, update_target_freq, save_every_n_fram
 
     # Parameters for epsilon-greedy policy.
     epsilon_start = 1.0
-    epsilon_final = 0.01
-    epsilon_decay = 75000
-
+    epsilon_final = 0.1
+    epsilon_decay = 500000
     epsilon_by_frame = lambda frame_idx: epsilon_final + (epsilon_start - epsilon_final) * np.exp(-frame_idx / epsilon_decay)
 
     # Parameters for training.
@@ -100,7 +97,7 @@ def training_loop(num_episodes, player_id, update_target_freq, save_every_n_fram
         # Reset agent's internal state.
         agent.reset()
 
-        if ep % save_every_n_frames == 0:
+        if ep % save_every_n_ep == 0:
             torch.save(agent.policy_net.state_dict(), 'agent.mdl')
 
         #if ep % 5 == 4:
