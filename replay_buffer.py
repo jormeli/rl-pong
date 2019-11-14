@@ -9,7 +9,7 @@ class ReplayBuffer(object):
         """Creates a new buffer.
 
         capacity (int): The maximum number of items in the new buffer.
-        state_shape (tuple): Shape of states stored in the buffer (assumes channels last).
+        state_shape (tuple): Shape of states stored in the buffer (assumes CHW).
         action_shape (tuple): Shape of actions stored in the buffer.
         prioritized (bool): Whether to use prioritized sampling.
         stack_size (int): Stack n concurrent states when sampling."""
@@ -101,14 +101,12 @@ class ReplayBuffer(object):
                     zero_until = self._stack_size - done_idx
                     item[:zero_until] = 0
 
-            states = stacked_batch['state'].transpose([0, 2, 3, 4, 1]) \
-                    .reshape((batch_size,) + self._state_shape[:-1] + (-1,))
-            next_states = stacked_batch['next_state'].transpose([0, 2, 3, 4, 1]) \
-                    .reshape((batch_size,) + self._state_shape[:-1] + (-1,))
+            states = stacked_batch['state'].reshape((batch_size, -1) + self._state_shape[1:])
+            next_states = stacked_batch['next_state'].reshape((batch_size, -1) + self._state_shape[1:])
 
         return (states, actions, rewards, next_states, dones), batch_idxs
 
-    def set_td_errors(self, idxs, errs):
+    def update_td_errors(self, idxs, errs):
         """Update TD errors for items when they are used in training.
 
         idxs (numpy.NDArray): Corresponding indices for the new error values.

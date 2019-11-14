@@ -35,13 +35,14 @@ def training_loop(num_episodes, player_id, update_target_freq, save_every_n_ep, 
 
     # Parameters for epsilon-greedy policy.
     epsilon_start = 1.0
-    epsilon_final = 0.1
-    epsilon_decay = 500000
+    epsilon_final = 0.01
+    epsilon_decay = 100000
+
     epsilon_by_frame = lambda frame_idx: epsilon_final + (epsilon_start - epsilon_final) * np.exp(-frame_idx / epsilon_decay)
 
     # Parameters for training.
-    start_training_at_frame = 50000
-    train_freq = 4
+    start_training_at_frame = 5000
+    train_freq = 1
 
     # Housekeeping
     wins = 0
@@ -68,9 +69,9 @@ def training_loop(num_episodes, player_id, update_target_freq, save_every_n_ep, 
             # Store transitions.
             agent.store_transition(agent_state, agent_action, agent_next_state, agent_reward, done)
 
-            # See if theres enough frames to start training.            
+            # See if theres enough frames to start training
             if frames_seen > start_training_at_frame:
-                if step % train_freq == 0:  # Update agent every 4th frame.
+                if step % train_freq == 0:  # Update agent every n-th frame.
                     #agent.td_loss_double_dqn()
                     agent.td_loss()
 
@@ -92,7 +93,7 @@ def training_loop(num_episodes, player_id, update_target_freq, save_every_n_ep, 
 
         act_counts, _ = np.histogram(actions_taken, bins=[0, 1, 2, 3])
         actions = 'stay %i, up %i, down %i' % (act_counts[0], act_counts[1], act_counts[2])
-        print('episode %i, end frame %i, tot. frames %i, eps %0.2f, %s, wins %i, losses %i' % (ep, step, frames_seen, epsilon, actions, wins, ep + 1 - wins))
+        print('buf_count %i, episode %i, end frame %i, tot. frames %i, eps %0.2f, %s, wins %i, losses %i' % (agent.memory.count, ep, step, frames_seen, epsilon, actions, wins, ep + 1 - wins))
 
         # Reset agent's internal state.
         agent.reset()

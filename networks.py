@@ -20,7 +20,7 @@ class VanillaDQN(nn.Module):
             nn.Conv2d(conv_fmaps, 2 * conv_fmaps, kernel_size=4, stride=2),
             nn.ReLU(),
             nn.Conv2d(2 * conv_fmaps, 2 * conv_fmaps, kernel_size=3, stride=1),
-            nn.ReLU()                 
+            nn.ReLU()
         )
 
         # Fully-connected layers.

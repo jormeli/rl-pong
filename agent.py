@@ -9,33 +9,34 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from networks import VanillaDQN
-from replay_memory import ReplayMemory
+from replay_buffer import ReplayBuffer
 
 
 #TODO: Voisi tehda jonkinlaisen base agentin, josta muut agentit voisi peria asioita.
 
 class Agent():
-    def __init__(self, input_shape, num_actions, minibatch_size=256,
-                 replay_memory_size=500000, gamma=0.98, beta0=0.9, beta1=0.999,
-                 learning_rate=1e-4, device='cuda', **kwargs):
+    def __init__(self, input_shape, num_actions, minibatch_size=128,
+                 replay_memory_size=500000, stack_size=1, gamma=0.98,
+                 beta0=0.9, beta1=0.999, learning_rate=1e-4, device='cuda',
+                 **kwargs):
         self.agent_name = 'NBC-pong'
         self.device = torch.device(device)
         self.input_shape = input_shape  # In CHW. (Shape of preprocessed frames)
+        self.stack_size = stack_size
+        self.stacked_input_shape = (stack_size * input_shape[0],) + input_shape[1:]
         self.num_actions = num_actions
-        self.policy_net = VanillaDQN(input_shape, num_actions)
-        self.target_net = VanillaDQN(input_shape, num_actions)
+        self.policy_net = VanillaDQN(self.stacked_input_shape, num_actions)
+        self.target_net = VanillaDQN(self.stacked_input_shape, num_actions)
         self.optimizer = optim.Adam(self.policy_net.parameters(), betas=(beta0, beta1), lr=learning_rate)
-        self.memory = ReplayMemory(replay_memory_size)
+        self.memory = ReplayBuffer(replay_memory_size, input_shape, (1,), prioritized=True, stack_size=4)
         self.minibatch_size = minibatch_size
         self.gamma = gamma
 
-        self.state_history = np.zeros(input_shape, dtype=np.uint8)
-        self.next_state_history = np.zeros(input_shape, dtype=np.uint8)
+        self.state_history = np.zeros(self.stacked_input_shape, dtype=np.uint8)
 
     def reset(self):
         """Reset agent's state after an episode has finished."""
-        self.state_history = np.zeros(self.input_shape, dtype=np.uint8)
-        self.next_state_history = np.zeros(self.input_shape, dtype=np.uint8)
+        self.state_history = np.zeros(self.stacked_input_shape, dtype=np.uint8)
 
     def get_name(self):
         """Returns the name of the agent."""
@@ -61,13 +62,9 @@ class Agent():
         # Preprocess state.
         state = self._preprocess_state(state)
 
-        state_history = self.state_history
-        if np.all(state_history == 0):
-            state_history[:, ...] = state
-        else:
-            state_history[1:] = state_history[:-1]
-            state_history[0] = state
-        state = state_history[None, :]  # Add batch dimension.
+        self.state_history = np.roll(self.state_history, -1, axis=0)
+        self.state_history[-1] = state
+        state = self.state_history[None, :]  # Add batch dimension.
 
         if random.random() > epsilon:  # Use Q-values.
             with torch.no_grad():
@@ -79,19 +76,20 @@ class Agent():
 
     def td_loss_double_dqn(self):
         """TD loss for double DQN, proposed in https://arxiv.org/abs/1509.06461."""
-        transitions = self.memory.sample(self.minibatch_size)
+        (states, actions, rewards, next_states, dones), idxs  = \
+                self.memory.sample_batch(self.minibatch_size)
 
         # Extract states, next_states, rewards, done signals from transitions
-        states = torch.stack([transition.state for transition in transitions], dim=0)
-        next_states = torch.stack([transition.next_state for transition in transitions], dim=0)
-        actions = torch.stack([transition.action for transition in transitions], dim=0)
-        rewards = torch.stack([transition.reward for transition in transitions], dim=0).squeeze(1)
-        dones = torch.from_numpy(np.array([int(transition.done) for transition in transitions]))
+        states = torch.from_numpy(states)
+        actions = torch.from_numpy(actions).long()
+        rewards = torch.from_numpy(rewards).squeeze(1)
+        next_states = torch.from_numpy(next_states)
+        dones = torch.from_numpy(dones)
 
         # Get Q-values from current network and target network.
         q_values = self.policy_net.forward(states)
         next_q_values = self.policy_net.forward(next_states)
-        next_q_state_values = self.target_net.forward(next_states) 
+        next_q_state_values = self.target_net.forward(next_states)
 
         q_value = q_values.gather(1, actions).squeeze(1)
         next_q_value = next_q_state_values.gather(1, torch.max(next_q_values, 1)[1].unsqueeze(1)).squeeze(1)
@@ -104,14 +102,23 @@ class Agent():
 
     def td_loss(self):
         """Compute TD loss."""
-        transitions = self.memory.sample(self.minibatch_size)
+        (states, actions, rewards, next_states, dones), idxs  = \
+                self.memory.sample_batch(self.minibatch_size)
+
+#        for i in range(10):
+#            for j in range(self.stack_size):
+#                img = states[i,j:j+1].transpose([1,2,0])
+#                img = np.stack([img, img, img], axis=-1).reshape((84, 84, 3))
+#                print(img.shape, img.dtype)
+#                PIL.Image.fromarray(img).save('./state_{:03d}_{:03d}.png'.format(i,j))
+
 
         # Extract states, next_states, rewards, done signals from transitions
-        states = torch.stack([transition.state for transition in transitions], dim=0)
-        next_states = torch.stack([transition.next_state for transition in transitions], dim=0)
-        actions = torch.stack([transition.action for transition in transitions], dim=0)
-        rewards = torch.stack([transition.reward for transition in transitions], dim=0).squeeze(1)
-        dones = torch.from_numpy(np.array([int(transition.done) for transition in transitions]))
+        states = torch.from_numpy(states)
+        actions = torch.from_numpy(actions).long()
+        rewards = torch.from_numpy(rewards.copy())
+        next_states = torch.from_numpy(next_states)
+        dones = torch.from_numpy(dones.astype(np.float32))
 
         # Get Q-values from current network and target network.
         q_values = self.policy_net.forward(states)
@@ -121,30 +128,20 @@ class Agent():
         next_q_value = next_q_values.max(1)[0]
         expected_q_value = rewards + self.gamma * next_q_value * (1 - dones)
         loss = F.smooth_l1_loss(q_value, expected_q_value.detach())  #(q_value - expected_q_value.detach()).pow(2).mean()
+        td_err = np.abs((q_value- expected_q_value).data)
 
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+
+        self.memory.update_td_errors(idxs, td_err)
 
     def update_target_network(self):
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
     def store_transition(self, state, action, next_state, reward, done):
         # Preprocess next state.
-        preprocessed_next_state = self._preprocess_state(next_state)
+        state = self._preprocess_state(state)
+        next_state = self._preprocess_state(next_state)
 
-        # If there is no previous next_states stack the current frame n times.
-        # Note state history is saved as np.float32 but replay memory uses np.uint8 to
-        # save memory.
-        if np.all(self.next_state_history == 0):
-            self.next_state_history[:, ...] = preprocessed_next_state
-        else:
-            self.next_state_history[1:] = self.next_state_history[:-1]
-            self.next_state_history[0] = preprocessed_next_state
-
-        # Push frames to replay memory.
-        action = torch.Tensor([action]).long()
-        reward = torch.tensor([reward], dtype=torch.float32)
-        next_state = torch.from_numpy(self.next_state_history)
-        state = torch.from_numpy(self.state_history)
-        self.memory.push(state, action, next_state, reward, done)
+        self.memory.store_transition(state, action, reward, next_state, done)
