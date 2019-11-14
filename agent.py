@@ -28,7 +28,7 @@ class Agent():
         self.policy_net = VanillaDQN(self.stacked_input_shape, num_actions)
         self.target_net = VanillaDQN(self.stacked_input_shape, num_actions)
         self.optimizer = optim.Adam(self.policy_net.parameters(), betas=(beta0, beta1), lr=learning_rate)
-        self.memory = ReplayBuffer(replay_memory_size, input_shape, (1,), prioritized=True, stack_size=4)
+        self.memory = ReplayBuffer(replay_memory_size, input_shape, (1,), prioritized=True, stack_size=stack_size)
         self.minibatch_size = minibatch_size
         self.gamma = gamma
 
@@ -82,9 +82,9 @@ class Agent():
         # Extract states, next_states, rewards, done signals from transitions
         states = torch.from_numpy(states)
         actions = torch.from_numpy(actions).long()
-        rewards = torch.from_numpy(rewards).squeeze(1)
+        rewards = torch.from_numpy(rewards.copy())
         next_states = torch.from_numpy(next_states)
-        dones = torch.from_numpy(dones)
+        dones = torch.from_numpy(dones.astype(np.float32))
 
         # Get Q-values from current network and target network.
         q_values = self.policy_net.forward(states)
@@ -95,10 +95,15 @@ class Agent():
         next_q_value = next_q_state_values.gather(1, torch.max(next_q_values, 1)[1].unsqueeze(1)).squeeze(1)
         expected_q_value = rewards + self.gamma * next_q_value * (1 - dones)
         loss = F.smooth_l1_loss(q_value, expected_q_value.detach())  #(q_value - expected_q_value.detach()).pow(2).mean()
+        td_err = np.abs((q_value- expected_q_value).data)
 
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+
+        self.memory.update_td_errors(idxs, td_err)
+
+        return loss.item()
 
     def td_loss(self):
         """Compute TD loss."""
@@ -135,6 +140,8 @@ class Agent():
         self.optimizer.step()
 
         self.memory.update_td_errors(idxs, td_err)
+
+        return loss.item()
 
     def update_target_network(self):
         self.target_net.load_state_dict(self.policy_net.state_dict())

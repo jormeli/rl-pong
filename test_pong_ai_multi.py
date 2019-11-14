@@ -11,6 +11,8 @@ import argparse
 import wimblepong
 from PIL import Image
 
+from agent import Agent
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--headless", action="store_true", help="Run in headless mode")
 parser.add_argument("--fps", type=int, help="FPS for rendering", default=30)
@@ -28,17 +30,20 @@ episodes = 100000
 player_id = 1
 opponent_id = 3 - player_id
 opponent = wimblepong.SimpleAi(env, opponent_id)
-player = wimblepong.SimpleAi(env, player_id)
+player = Agent((1, 84, 84), 3, stack_size=4)
+player.load_model('./models/agent.mdl')
 
 # Set the names for both SimpleAIs
 env.set_names(player.get_name(), opponent.get_name())
 
 win1 = 0
 for i in range(0,episodes):
+    ob1, ob2 = env.reset()
     done = False
+
     while not done:
         # Get the actions from both SimpleAIs
-        action1 = player.get_action()
+        action1 = player.get_action(ob1)
         action2 = opponent.get_action()
         # Step the environment and get the rewards and new observations
         (ob1, ob2), (rew1, rew2), done, info = env.step((action1, action2))
@@ -51,6 +56,5 @@ for i in range(0,episodes):
             win1 += 1
         if not args.headless:
             env.render()
-        if done:
-            observation= env.reset()
-            print("episode {} over. Broken WR: {:.3f}".format(i, win1/(i+1)))
+
+    print("episode {} over. Broken WR: {:.3f}".format(i, win1/(i+1)))
