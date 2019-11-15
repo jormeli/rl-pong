@@ -12,13 +12,11 @@ from networks import VanillaDQN
 from replay_buffer import ReplayBuffer
 
 
-#TODO: Voisi tehda jonkinlaisen base agentin, josta muut agentit voisi peria asioita.
-
 class Agent():
     def __init__(self, input_shape, num_actions, minibatch_size=128,
                  replay_memory_size=500000, stack_size=1, gamma=0.98,
                  beta0=0.9, beta1=0.999, learning_rate=1e-4, device='cuda',
-                 **kwargs):
+                 normalize=False, prioritized=True, **kwargs):
         self.agent_name = 'NBC-pong'
         self.device = torch.device(device)
         self.input_shape = input_shape  # In CHW. (Shape of preprocessed frames)
@@ -28,9 +26,10 @@ class Agent():
         self.policy_net = VanillaDQN(self.stacked_input_shape, num_actions)
         self.target_net = VanillaDQN(self.stacked_input_shape, num_actions)
         self.optimizer = optim.Adam(self.policy_net.parameters(), betas=(beta0, beta1), lr=learning_rate)
-        self.memory = ReplayBuffer(replay_memory_size, input_shape, (1,), prioritized=True, stack_size=stack_size)
+        self.memory = ReplayBuffer(replay_memory_size, input_shape, (1,), prioritized=prioritized, stack_size=stack_size)
         self.minibatch_size = minibatch_size
         self.gamma = gamma
+        self.normalize = normalize
 
         self.state_history = np.zeros(self.stacked_input_shape, dtype=np.uint8)
 
@@ -94,7 +93,7 @@ class Agent():
         q_value = q_values.gather(1, actions).squeeze(1)
         next_q_value = next_q_state_values.gather(1, torch.max(next_q_values, 1)[1].unsqueeze(1)).squeeze(1)
         expected_q_value = rewards + self.gamma * next_q_value * (1 - dones)
-        loss = F.smooth_l1_loss(q_value, expected_q_value.detach())  #(q_value - expected_q_value.detach()).pow(2).mean()
+        loss = (q_value - expected_q_value.detach()).pow(2).mean()  # F.smooth_l1_loss(q_value, expected_q_value.detach())
         td_err = np.abs((q_value- expected_q_value).data)
 
         self.optimizer.zero_grad()
@@ -110,14 +109,6 @@ class Agent():
         (states, actions, rewards, next_states, dones), idxs  = \
                 self.memory.sample_batch(self.minibatch_size)
 
-#        for i in range(10):
-#            for j in range(self.stack_size):
-#                img = states[i,j:j+1].transpose([1,2,0])
-#                img = np.stack([img, img, img], axis=-1).reshape((84, 84, 3))
-#                print(img.shape, img.dtype)
-#                PIL.Image.fromarray(img).save('./state_{:03d}_{:03d}.png'.format(i,j))
-
-
         # Extract states, next_states, rewards, done signals from transitions
         states = torch.from_numpy(states)
         actions = torch.from_numpy(actions).long()
@@ -132,7 +123,7 @@ class Agent():
         q_value = q_values.gather(1, actions).squeeze(1)
         next_q_value = next_q_values.max(1)[0]
         expected_q_value = rewards + self.gamma * next_q_value * (1 - dones)
-        loss = F.smooth_l1_loss(q_value, expected_q_value.detach())  #(q_value - expected_q_value.detach()).pow(2).mean()
+        loss = (q_value - expected_q_value.detach()).pow(2).mean()  # F.smooth_l1_loss(q_value, expected_q_value.detach())
         td_err = np.abs((q_value- expected_q_value).data)
 
         self.optimizer.zero_grad()
