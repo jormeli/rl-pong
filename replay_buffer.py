@@ -115,7 +115,7 @@ class ReplayBuffer(object):
         errs = errs.reshape((-1,))
         assert len(idxs) == len(errs)
 
-        self._buffer[idxs]['td_err'] = errs
+        self._buffer['td_err'][idxs] = errs
 
     def reset(self):
         """Reset this buffer."""
