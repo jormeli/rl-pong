@@ -98,3 +98,47 @@ class DuelingDQN(nn.Module):
         advantage = self.advantage_stream(x)
 
         return value + advantage - advantage.mean()
+
+
+class CNN(nn.Module):
+    def __init__(self, input_shape, num_actions, conv_fmaps=32, fc_fmaps=512):
+        super(CNN, self).__init__()
+
+        self.input_shape = input_shape  # In format CHW.
+        self.num_actions = num_actions
+
+        # Conv. layers.
+        self.conv_features = nn.Sequential(
+            nn.Conv2d(input_shape[0], 32, kernel_size=7, stride=2, padding=3),
+            nn.ELU(),
+            nn.Conv2d(32, 32, kernel_size=3, stride=2, padding=1),
+            nn.ELU(),
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
+            nn.ELU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1),
+            nn.ELU(),
+        )
+
+        # Fully-connected layers.
+        flat_conv_outputs = self._get_flat_conv_outputs()
+        self.fc_layers = nn.Sequential(
+            nn.Linear(flat_conv_outputs, 256),
+            nn.ELU(),
+            nn.Linear(256, num_actions)
+        )
+
+    def _get_flat_conv_outputs(self):
+        """Feed zero tensor through conv. features to obtain flattened output size."""
+        return self.conv_features(torch.zeros(1, *self.input_shape)).view(1, -1).shape[1]
+
+    def forward(self, x):
+        """Forward pass the network."""
+        # Convert to float and scale from [0, 255] to [-1, 1].
+        x = x.float()
+        x = (x - 127.5) / 127.5
+
+        # Feed x through layers.
+        x = self.conv_features(x)
+        x = x.view(x.shape[0], -1)  # Flatten (N, C, H, W) -> (N, C * H * W).
+        x = self.fc_layers(x)
+        return x
