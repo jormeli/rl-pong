@@ -13,18 +13,29 @@ from replay_buffer import ReplayBuffer
 
 
 class Agent():
-    def __init__(self, input_shape, num_actions, minibatch_size=128,
-                 replay_memory_size=500000, stack_size=1, gamma=0.98,
-                 beta0=0.9, beta1=0.999, learning_rate=1e-4, device='cuda',
-                 normalize=False, prioritized=True, **kwargs):
+    def __init__(self,
+                 input_shape,
+                 num_actions,
+                 network_fn=VanillaDQN,
+                 minibatch_size=128,
+                 replay_memory_size=500000,
+                 stack_size=1,
+                 gamma=0.98,
+                 beta0=0.9,
+                 beta1=0.999,
+                 learning_rate=1e-4,
+                 device='cuda',
+                 normalize=False,
+                 prioritized=True,
+                 **kwargs):
         self.agent_name = 'NBC-pong'
         self.device = torch.device(device)
         self.input_shape = input_shape  # In CHW. (Shape of preprocessed frames)
         self.stack_size = stack_size
         self.stacked_input_shape = (stack_size * input_shape[0],) + input_shape[1:]
         self.num_actions = num_actions
-        self.policy_net = VanillaDQN(self.stacked_input_shape, num_actions)
-        self.target_net = VanillaDQN(self.stacked_input_shape, num_actions)
+        self.policy_net = network_fn(self.stacked_input_shape, num_actions)
+        self.target_net = network_fn(self.stacked_input_shape, num_actions)
         self.optimizer = optim.Adam(self.policy_net.parameters(), betas=(beta0, beta1), lr=learning_rate)
         self.memory = ReplayBuffer(replay_memory_size, input_shape, (1,), prioritized=prioritized, stack_size=stack_size)
         self.minibatch_size = minibatch_size
