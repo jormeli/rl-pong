@@ -72,7 +72,7 @@ def training_loop(num_episodes, target_epsilon, reach_target_at_frame, player_id
         losses = []
 
         # Compute new epsilon.
-        epsilon = epsilon_schedule(ep, target_epsilon, reach_target_at_frame)
+        epsilon = epsilon_schedule(frames_seen, target_epsilon, reach_target_at_frame)
 
         while not done:
             # Get actions from agent and opponent.
@@ -146,7 +146,7 @@ def training_loop(num_episodes, target_epsilon, reach_target_at_frame, player_id
         agent.reset()
 
         if ep % save_every_n_ep == 0:
-            torch.save(agent.policy_net.state_dict(), os.path.join(model_dir, 'agent_ep%i.mdl' % ep))
+            torch.save(agent.policy_net.state_dict(), os.path.join(model_dir, 'agent_ep.mdl'))
 
         #if ep % 5 == 4:
         #    env.switch_sides()
