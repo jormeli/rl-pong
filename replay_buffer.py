@@ -40,7 +40,7 @@ class ReplayBuffer(object):
 
         item = (state, action, reward, next_state, done, 1e10)
         self._buffer[self._ptr] = item
-        self._ptr = (self._ptr + 1) % (self._capacity - 1)
+        self._ptr = (self._ptr + 1) % self._capacity
         self._count = min(self._count + 1, self._capacity)
 
 
