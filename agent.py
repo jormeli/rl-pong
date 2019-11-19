@@ -90,7 +90,7 @@ class Agent():
         if random.random() > epsilon:  # Use Q-values.
             with torch.no_grad():
                 state = torch.from_numpy(state)
-                q_values = self.policy_net(state)
+                q_values = self.policy_net(state, training=False)
                 return torch.argmax(q_values).item()
         else:  # Select action uniform random.
             return random.randrange(self.num_actions)
@@ -111,9 +111,9 @@ class Agent():
             rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
         # Get Q-values from current network and target network.
-        q_values = self.policy_net.forward(states)
-        next_q_values = self.policy_net.forward(next_states)
-        next_q_state_values = self.target_net.forward(next_states)
+        q_values = self.policy_net.forward(states, training=True)
+        next_q_values = self.policy_net.forward(next_states, training=True)
+        next_q_state_values = self.target_net.forward(next_states, training=True)
 
         q_value = q_values.gather(1, actions).squeeze(1)
         next_q_value = next_q_state_values.gather(1, torch.max(next_q_values, 1)[1].unsqueeze(1)).squeeze(1)
@@ -149,8 +149,8 @@ class Agent():
             rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
         # Get Q-values from current network and target network.
-        q_values = self.policy_net.forward(states)
-        next_q_values = self.policy_net.forward(next_states)
+        q_values = self.policy_net.forward(states, training=True)
+        next_q_values = self.policy_net.forward(next_states, training=True)
 
         q_value = q_values.gather(1, actions).squeeze(1)
         next_q_value = next_q_values.max(1)[0]

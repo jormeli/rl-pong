@@ -113,7 +113,7 @@ class DuelingDQN(nn.Module):
         """Feed zero tensor through conv. features to obtain flattened output size."""
         return self.conv_features(torch.zeros(1, *self.input_shape)).view(1, -1).shape[1]
 
-    def forward(self, x):
+    def forward(self, x, training=False):
         """Forward pass the network."""
         # Convert to float and scale from [0, 255] to [-1, 1].
         x = x.float()
@@ -125,10 +125,10 @@ class DuelingDQN(nn.Module):
 
         # Separately compute value and advantage streams.
         if self.noisy:
-            advantage = F.relu(self.fc1_advantage(x))
-            advantage = self.fc2_advantage(advantage)
-            value = F.relu(self.fc1_value(x))
-            value = self.fc2_value(value)
+            advantage = F.relu(self.fc1_advantage(x, training=training))
+            advantage = self.fc2_advantage(advantage, training=training)
+            value = F.relu(self.fc1_value(x, training=training))
+            value = self.fc2_value(value, training=training)
         else:
             value = self.value_stream(x)
             advantage = self.advantage_stream(x)
@@ -179,7 +179,7 @@ class CNN(nn.Module):
         """Feed zero tensor through conv. features to obtain flattened output size."""
         return self.conv_features(torch.zeros(1, *self.input_shape)).view(1, -1).shape[1]
 
-    def forward(self, x):
+    def forward(self, x, training=False):
         """Forward pass the network."""
         # Convert to float and scale from [0, 255] to [-1, 1].
         x = x.float()
@@ -190,8 +190,8 @@ class CNN(nn.Module):
         x = x.view(x.shape[0], -1)  # Flatten (N, C, H, W) -> (N, C * H * W).
 
         if self.noisy:
-            x = F.elu(self.fc1_noisy(x))
-            x = self.fc2_noisy(x)
+            x = F.elu(self.fc1_noisy(x, training=training))
+            x = self.fc2_noisy(x, training=training)
         else:
             x = self.fc_layers(x)
 
