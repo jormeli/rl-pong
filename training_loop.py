@@ -12,8 +12,6 @@ from utils import EasyDict
 import wimblepong
 
 
-RUN_DIR = os.path.dirname(os.path.abspath(__file__))
-
 def make_pong_environment(fps=30, scale=1):
     """Initialize Pong environment."""
     env = gym.make("WimblepongVisualMultiplayer-v0")  # TODO: Add more options.
@@ -32,8 +30,11 @@ def epsilon_schedule(episode, target_epsilon, reach_target_at_frame):
 
 
 def training_loop(num_episodes, target_epsilon, reach_target_at_frame, player_id, start_training_at_frame,
-                  update_target_freq, save_every_n_ep, log_freq, agent_config, clip_reward=False, run_description='', render=False):
+                  update_target_freq, save_every_n_ep, log_freq, loss_name, agent_config, clip_reward=False, run_description='',
+                  render=False):
     """Training loop for Pong agents."""
+    run_dir = os.path.dirname(os.path.abspath(__file__))
+
     # Make the environment
     env = make_pong_environment()
 
@@ -48,8 +49,8 @@ def training_loop(num_episodes, target_epsilon, reach_target_at_frame, player_id
     env.set_names(agent.get_name(), opponent.get_name())
 
     # Setup directories for models and logging.
-    model_dir = os.path.join(RUN_DIR, 'models')
-    log_dir = os.path.join(RUN_DIR, 'logs')
+    model_dir = os.path.join(run_dir, 'models')
+    log_dir = os.path.join(run_dir, 'logs')
 
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(log_dir, exist_ok=True)
@@ -62,6 +63,7 @@ def training_loop(num_episodes, target_epsilon, reach_target_at_frame, player_id
     wins = 0
     frames_seen = 0
     game_results = []
+    reward_sums = []
 
     for ep in range(0, num_episodes):
         # Reset the Pong environment
@@ -70,9 +72,10 @@ def training_loop(num_episodes, target_epsilon, reach_target_at_frame, player_id
         step = 0
         actions_taken = []
         losses = []
+        reward_sum = 0.0
 
         # Compute new epsilon.
-        epsilon = epsilon_schedule(ep, target_epsilon, reach_target_at_frame)
+        epsilon = epsilon_schedule(frames_seen, target_epsilon, reach_target_at_frame)
 
         while not done:
             # Get actions from agent and opponent.
@@ -86,19 +89,30 @@ def training_loop(num_episodes, target_epsilon, reach_target_at_frame, player_id
             if clip_reward:
                 agent_reward = max(-1., min(1., agent_reward))
 
+            #if agent_reward == 0.0:
+            #    agent_reward = 0.2
+            #elif agent_reward == 10.0:
+            #    agent_reward = 15.0
+            #elif agent_reward == -10:
+            #    agent_reward = -15.0
+
             # Store transitions.
             agent.store_transition(agent_state, agent_action, agent_next_state, agent_reward, done)
 
-            # See if theres enough frames to start training
+            # See if theres enough frames to start training.
             if frames_seen > start_training_at_frame:
-                loss = agent.td_loss_double_dqn()
-                #loss = agent.td_loss()
+                if loss_name == 'td_loss':
+                    loss = agent.td_loss()
+                elif loss_name == 'double_dqn':
+                    loss = agent.td_loss_double_dqn()
+                else:
+                    raise NotImplementedError('Unknown loss name %s.' % loss_name)
 
                 if frames_seen % update_target_freq == update_target_freq - 1:  # Update target network.
                     agent.update_target_network()
 
-            # Count the wins.
-            if agent_reward == max_reward:
+            # Count the wins. Won't work with discounting.
+            if agent_reward == max_reward:  # 15.0
                 wins += 1
                 game_results.append(1)
             else:
@@ -115,9 +129,11 @@ def training_loop(num_episodes, target_epsilon, reach_target_at_frame, player_id
             agent_state = agent_next_state
             opp_state = opp_next_state
             actions_taken.append(agent_action)
+            reward_sum += agent_reward
             step += 1
             frames_seen += 1
 
+        reward_sums.append(reward_sum)
         act_counts, _ = np.histogram(actions_taken, bins=[0, 1, 2, 3])
         actions = 'stay %i, up %i, down %i' % (act_counts[0], act_counts[1], act_counts[2])
         print('buf_count %i, episode %i, end frame %i, tot. frames %i, eps %0.2f, %s, wins %i, losses %i' % (agent.memory.count, ep, step, frames_seen, epsilon, actions, wins, ep + 1 - wins))
@@ -125,15 +141,21 @@ def training_loop(num_episodes, target_epsilon, reach_target_at_frame, player_id
         # Log progress.
         if ep % log_freq == 0:
             # Write scalars.
-            writer.add_scalar('Episode/Mean-TD-loss', np.mean(losses), ep)
+            writer.add_scalar('Episode/%s' % loss_name, np.mean(losses), ep)
             writer.add_scalar('Episode/Episode-length', step, ep)
-            writer.add_scalar('Progress/Epsilon', epsilon, ep)
+            writer.add_scalar('Progress/Epsilon', epsilon, frames_seen)
+            writer.add_scalar('Progress/Frames', frames_seen, frames_seen)
 
-            if ep < 100:  # Log results from last n games.
+            if ep < 100:  # Log results and rewards from last n games.
                 last_n_results = game_results
+                last_n_reward_sums = reward_sums
             else:
                 last_n_results = game_results[-100:]
+                last_n_reward_sums = reward_sums[-100:]
+
             cur_win_rate = np.mean(last_n_results)
+            mean_rewards = np.mean(last_n_reward_sums)
+            writer.add_scalar('Progress/Cumulative-reward', mean_rewards, ep)
             writer.add_scalar('Progress/Win-rate', cur_win_rate, ep)
 
             # Show random batch of states.

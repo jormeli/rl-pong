@@ -12,11 +12,12 @@ import wimblepong
 from PIL import Image
 
 from agent import Agent
+from networks import *
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--headless", action="store_true", help="Run in headless mode")
 parser.add_argument("--fps", type=int, help="FPS for rendering", default=30)
-parser.add_argument("--scale", type=int, help="Scale of the rendered game", default=1)
+parser.add_argument("--scale", type=int, help="Scale of the rendered game", default=4)
 args = parser.parse_args()
 
 # Make the environment
@@ -30,8 +31,23 @@ episodes = 100000
 player_id = 1
 opponent_id = 3 - player_id
 opponent = wimblepong.SimpleAi(env, opponent_id)
-player = Agent((1, 84, 84), 3, stack_size=4)
-player.load_model('./models/agent.mdl')
+player = Agent(input_shape=(1, 84, 84),
+               num_actions=3,
+               network_fn=DuelingDQN,
+               network_fn_kwargs=None,
+               minibatch_size=128,
+               replay_memory_size=500000,
+               stack_size=4,
+               gamma=0.98,
+               beta0=0.9,
+               beta1=0.999,
+               learning_rate=1e-4,
+               device='cuda',
+               normalize=False,
+               noisy=False,
+               prioritized=True)
+
+player.load_model('./models/agent_ep17000.mdl')
 
 # Set the names for both SimpleAIs
 env.set_names(player.get_name(), opponent.get_name())
@@ -43,7 +59,7 @@ for i in range(0,episodes):
 
     while not done:
         # Get the actions from both SimpleAIs
-        action1 = player.get_action(ob1)
+        action1 = player.get_action(ob1,epsilon=0.0)
         action2 = opponent.get_action()
         # Step the environment and get the rewards and new observations
         (ob1, ob2), (rew1, rew2), done, info = env.step((action1, action2))
@@ -57,4 +73,4 @@ for i in range(0,episodes):
         if not args.headless:
             env.render()
 
-    print("episode {} over. Broken WR: {:.3f}".format(i, win1/(i+1)))
+    print("episode {} over. WR: {:.3f}".format(i, win1/(i+1)))

@@ -8,8 +8,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from networks import VanillaDQN
+from networks import DuelingDQN, VanillaDQN
 from replay_buffer import ReplayBuffer
+from noisy_nets import NoisyLinear
 
 
 class Agent():
@@ -17,6 +18,7 @@ class Agent():
                  input_shape,
                  num_actions,
                  network_fn=VanillaDQN,
+                 network_fn_kwargs=None,
                  minibatch_size=128,
                  replay_memory_size=500000,
                  stack_size=1,
@@ -24,25 +26,34 @@ class Agent():
                  beta0=0.9,
                  beta1=0.999,
                  learning_rate=1e-4,
-                 device='cuda',
+                 device='cpu',
                  normalize=False,
                  prioritized=True,
                  **kwargs):
+
         self.agent_name = 'NBC-pong'
         self.device = torch.device(device)
         self.input_shape = input_shape  # In CHW. (Shape of preprocessed frames)
         self.stack_size = stack_size
         self.stacked_input_shape = (stack_size * input_shape[0],) + input_shape[1:]
         self.num_actions = num_actions
-        self.policy_net = network_fn(self.stacked_input_shape, num_actions)
-        self.target_net = network_fn(self.stacked_input_shape, num_actions)
+
+        if network_fn_kwargs is None:
+            network_fn_kwargs = {}
+
+        self.policy_net = network_fn(self.stacked_input_shape, num_actions, **network_fn_kwargs)
+        self.target_net = network_fn(self.stacked_input_shape, num_actions, **network_fn_kwargs)
         self.optimizer = optim.Adam(self.policy_net.parameters(), betas=(beta0, beta1), lr=learning_rate)
         self.memory = ReplayBuffer(replay_memory_size, input_shape, (1,), prioritized=prioritized, stack_size=stack_size)
         self.minibatch_size = minibatch_size
         self.gamma = gamma
         self.normalize = normalize
+        self.noisy = network_fn_kwargs.pop('noisy', False)
 
         self.state_history = np.zeros(self.stacked_input_shape, dtype=np.uint8)
+
+        # Print policy network architecture.
+        print(self.policy_net.eval())
 
     def reset(self):
         """Reset agent's state after an episode has finished."""
@@ -55,7 +66,7 @@ class Agent():
     def load_model(self, model_path):
         """Loads model's parameters from path."""
         self.policy_net.load_state_dict(torch.load(model_path, map_location=self.device))
-        self.policy_net.eval()
+        print(self.policy_net.eval())
 
     def _preprocess_state(self, state):
         """Apply preprocessing (grayscale, resize) to a state."""
@@ -96,6 +107,9 @@ class Agent():
         next_states = torch.from_numpy(next_states)
         dones = torch.from_numpy(dones.astype(np.float32))
 
+        if self.normalize:
+            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
+
         # Get Q-values from current network and target network.
         q_values = self.policy_net.forward(states)
         next_q_values = self.policy_net.forward(next_states)
@@ -113,6 +127,10 @@ class Agent():
 
         self.memory.update_td_errors(idxs, td_err)
 
+        if self.noisy:  # Resample noise epsilons.
+            self.policy_net.resample_noise()
+            self.target_net.resample_noise()
+
         return loss.item()
 
     def td_loss(self):
@@ -126,6 +144,9 @@ class Agent():
         rewards = torch.from_numpy(rewards.copy())
         next_states = torch.from_numpy(next_states)
         dones = torch.from_numpy(dones.astype(np.float32))
+
+        if self.normalize:
+            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
         # Get Q-values from current network and target network.
         q_values = self.policy_net.forward(states)
@@ -142,6 +163,10 @@ class Agent():
         self.optimizer.step()
 
         self.memory.update_td_errors(idxs, td_err)
+
+        if self.noisy:  # Resample noise epsilons.
+            self.policy_net.resample_noise()
+            self.target_net.resample_noise()
 
         return loss.item()
 

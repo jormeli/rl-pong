@@ -91,7 +91,9 @@ class ReplayBuffer(object):
 
             is_neg = stack_idxs < 0
             stacked_batch = self._buffer[stack_idxs].copy()
-            stacked_batch[is_neg] = 0.
+
+            if self.count < self.capacity:
+                stacked_batch[is_neg] = 0.
 
             for item in stacked_batch:
                 # If any but the last item is done, set it and preceding items to zero.
