@@ -8,9 +8,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+from loss import double_dqn_loss
 from networks import DuelingDQN, VanillaDQN
-from replay_buffer import ReplayBuffer
 from noisy_nets import NoisyLinear
+from replay_buffer import ReplayBuffer
 
 
 class Agent():
@@ -19,6 +20,7 @@ class Agent():
                  num_actions,
                  network_fn=VanillaDQN,
                  network_fn_kwargs=None,
+                 loss_fn=double_dqn_loss,
                  minibatch_size=128,
                  replay_memory_size=500000,
                  stack_size=1,
@@ -37,6 +39,7 @@ class Agent():
         self.stack_size = stack_size
         self.stacked_input_shape = (stack_size * input_shape[0],) + input_shape[1:]
         self.num_actions = num_actions
+        self.loss_fn = loss_fn
 
         if network_fn_kwargs is None:
             network_fn_kwargs = {}
@@ -95,12 +98,13 @@ class Agent():
         else:  # Select action uniform random.
             return random.randrange(self.num_actions)
 
-    def td_loss_double_dqn(self):
-        """TD loss for double DQN, proposed in https://arxiv.org/abs/1509.06461."""
+    def compute_loss(self):
+        """Compute loss function and update parameters."""
+        # Sample a minibatch of observations.
         (states, actions, rewards, next_states, dones), idxs  = \
                 self.memory.sample_batch(self.minibatch_size)
 
-        # Extract states, next_states, rewards, done signals from transitions
+        # Extract states, next_states, rewards, done signals from transitions.
         states = torch.from_numpy(states)
         actions = torch.from_numpy(actions).long()
         rewards = torch.from_numpy(rewards.copy())
@@ -110,58 +114,22 @@ class Agent():
         if self.normalize:
             rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
-        # Get Q-values from current network and target network.
-        q_values = self.policy_net.forward(states, training=True)
-        next_q_values = self.policy_net.forward(next_states, training=True)
-        next_q_state_values = self.target_net.forward(next_states, training=True)
+        loss, td_err = self.loss_fn(self.policy_net,
+                                    self.target_net,
+                                    states,
+                                    actions,
+                                    rewards,
+                                    next_states,
+                                    dones,
+                                    self.gamma,
+                                    self.noisy)
 
-        q_value = q_values.gather(1, actions).squeeze(1)
-        next_q_value = next_q_state_values.gather(1, torch.max(next_q_values, 1)[1].unsqueeze(1)).squeeze(1)
-        expected_q_value = rewards + self.gamma * next_q_value * (1 - dones)
-        loss = (q_value - expected_q_value.detach()).pow(2).mean()  # F.smooth_l1_loss(q_value, expected_q_value.detach())
-        td_err = np.abs((q_value- expected_q_value).data)
-
+        # Minimize loss w.r.t policy network.
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-        self.memory.update_td_errors(idxs, td_err)
-
-        if self.noisy:  # Resample noise epsilons.
-            self.policy_net.resample_noise()
-            self.target_net.resample_noise()
-
-        return loss.item()
-
-    def td_loss(self):
-        """Compute TD loss."""
-        (states, actions, rewards, next_states, dones), idxs  = \
-                self.memory.sample_batch(self.minibatch_size)
-
-        # Extract states, next_states, rewards, done signals from transitions
-        states = torch.from_numpy(states)
-        actions = torch.from_numpy(actions).long()
-        rewards = torch.from_numpy(rewards.copy())
-        next_states = torch.from_numpy(next_states)
-        dones = torch.from_numpy(dones.astype(np.float32))
-
-        if self.normalize:
-            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
-
-        # Get Q-values from current network and target network.
-        q_values = self.policy_net.forward(states, training=True)
-        next_q_values = self.policy_net.forward(next_states, training=True)
-
-        q_value = q_values.gather(1, actions).squeeze(1)
-        next_q_value = next_q_values.max(1)[0]
-        expected_q_value = rewards + self.gamma * next_q_value * (1 - dones)
-        loss = (q_value - expected_q_value.detach()).pow(2).mean()  # F.smooth_l1_loss(q_value, expected_q_value.detach())
-        td_err = np.abs((q_value- expected_q_value).data)
-
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-
+        # Update TD errors.
         self.memory.update_td_errors(idxs, td_err)
 
         if self.noisy:  # Resample noise epsilons.

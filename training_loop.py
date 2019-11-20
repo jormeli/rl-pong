@@ -30,7 +30,7 @@ def epsilon_schedule(episode, target_epsilon, reach_target_at_frame):
 
 
 def training_loop(num_episodes, target_epsilon, reach_target_at_frame, player_id, start_training_at_frame,
-                  update_target_freq, save_every_n_ep, log_freq, loss_name, agent_config, clip_reward=False, run_description='',
+                  update_target_freq, save_every_n_ep, log_freq, agent_config, clip_reward=False, run_description='',
                   render=False):
     """Training loop for Pong agents."""
     run_dir = os.path.dirname(os.path.abspath(__file__))
@@ -101,12 +101,7 @@ def training_loop(num_episodes, target_epsilon, reach_target_at_frame, player_id
 
             # See if theres enough frames to start training.
             if frames_seen > start_training_at_frame:
-                if loss_name == 'td_loss':
-                    loss = agent.td_loss()
-                elif loss_name == 'double_dqn':
-                    loss = agent.td_loss_double_dqn()
-                else:
-                    raise NotImplementedError('Unknown loss name %s.' % loss_name)
+                loss = agent.compute_loss()
 
                 if frames_seen % update_target_freq == update_target_freq - 1:  # Update target network.
                     agent.update_target_network()
@@ -141,7 +136,7 @@ def training_loop(num_episodes, target_epsilon, reach_target_at_frame, player_id
         # Log progress.
         if ep % log_freq == 0:
             # Write scalars.
-            writer.add_scalar('Episode/%s' % loss_name, np.mean(losses), ep)
+            writer.add_scalar('Episode/Loss', np.mean(losses), ep)
             writer.add_scalar('Episode/Episode-length', step, ep)
             writer.add_scalar('Progress/Epsilon', epsilon, frames_seen)
             writer.add_scalar('Progress/Frames', frames_seen, frames_seen)
