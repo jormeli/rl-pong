@@ -8,9 +8,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from loss import double_dqn_loss
-from networks import DuelingDQN, VanillaDQN
-from noisy_nets import NoisyLinear
+from loss import categorical_loss, double_dqn_loss, td_loss
+from networks import DuelingDQN, VanillaDQN, CNN
 from replay_buffer import ReplayBuffer
 
 
@@ -18,16 +17,16 @@ class Agent():
     def __init__(self,
                  input_shape,
                  num_actions,
-                 network_fn=VanillaDQN,
+                 network_fn=DuelingDQN,
                  network_fn_kwargs=None,
                  loss_fn=double_dqn_loss,
                  minibatch_size=128,
-                 replay_memory_size=500000,
-                 stack_size=1,
-                 gamma=0.98,
+                 replay_memory_size=1000000,
+                 stack_size=4,
+                 gamma=0.99,
                  beta0=0.9,
                  beta1=0.999,
-                 learning_rate=1e-4,
+                 learning_rate=2.5e-4,
                  device='cpu',
                  normalize=False,
                  prioritized=True,
@@ -52,11 +51,20 @@ class Agent():
         self.gamma = gamma
         self.normalize = normalize
         self.noisy = network_fn_kwargs.pop('noisy', False)
+        self.categorical = network_fn_kwargs.pop('categorical', False)
+        self.V_min = network_fn_kwargs.pop('V_min', -10.0)
+        self.V_max = network_fn_kwargs.pop('V_max', 10.0)
+        self.num_atoms = network_fn_kwargs.pop('num_atoms', 51)
 
         self.state_history = np.zeros(self.stacked_input_shape, dtype=np.uint8)
 
+        # Check that categorical loss is used with distributional agent.
+        if self.categorical:
+            assert self.loss_fn == categorical_loss
+
         # Print policy network architecture.
         print(self.policy_net.eval())
+        print('Loss function: ', self.loss_fn)
 
     def reset(self):
         """Reset agent's state after an episode has finished."""
@@ -96,8 +104,14 @@ class Agent():
         if random.random() > epsilon:  # Use Q-values.
             with torch.no_grad():
                 state = torch.from_numpy(state)
-                q_values = self.policy_net(state, training=False)
-                return torch.argmax(q_values).item()
+                if self.categorical:
+                    dist = self.policy_net(state)
+                    dist = dist * torch.linspace(self.V_min, self.V_max, self.num_atoms)  # Project onto support.
+                    action = torch.argmax(dist.sum(2)).item()  # Sum over atoms.
+                    return action
+                else:
+                    q_values = self.policy_net(state, training=False)
+                    return torch.argmax(q_values).item()
         else:  # Select action uniform random.
             return random.randrange(self.num_actions)
 

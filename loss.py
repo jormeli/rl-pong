@@ -99,18 +99,18 @@ def project_bellman_update(target_net,
         return m
 
 
-def categorical_td_loss(policy_net,
-                        target_net,
-                        states,
-                        actions,
-                        rewards,
-                        next_states,
-                        dones,
-                        gamma,
-                        noisy,
-                        V_min=-10,
-                        V_max=10,
-                        num_atoms=51):
+def categorical_loss(policy_net,
+                     target_net,
+                     states,
+                     actions,
+                     rewards,
+                     next_states,
+                     dones,
+                     gamma,
+                     noisy,
+                     V_min=-10,
+                     V_max=10,
+                     num_atoms=51):
     """Implements the categorical algorithm (C-51) from https://arxiv.org/abs/1707.06887."""
 
     batch_size = states.shape[0]

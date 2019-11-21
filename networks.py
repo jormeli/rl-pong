@@ -20,6 +20,9 @@ class VanillaDQN(nn.Module):
         self.input_shape = input_shape  # In format CHW.
         self.num_actions = num_actions
         self.noisy = kwargs.pop('noisy', False)
+        self.categorical = kwargs.pop('categorical', False)
+        self.num_atoms = kwargs.pop('num_atoms', 51)
+        self.fc_output_shape = self.num_actions * self.num_atoms if self.categorical else self.num_actions
 
         # Conv. layers.
         self.conv_features = nn.Sequential(
@@ -36,12 +39,12 @@ class VanillaDQN(nn.Module):
 
         if self.noisy:
             self.fc1_noisy = NoisyLinear(flat_conv_outputs, fc_fmaps)
-            self.fc2_noisy = NoisyLinear(fc_fmaps, self.num_actions)
+            self.fc2_noisy = NoisyLinear(fc_fmaps, self.fc_output_shape)
         else:
             self.fc_layers = nn.Sequential(
                 nn.Linear(flat_conv_outputs, fc_fmaps),
                 nn.ReLU(),
-                nn.Linear(fc_fmaps, self.num_actions)
+                nn.Linear(fc_fmaps, self.fc_output_shape)
             )
 
     def _get_flat_conv_outputs(self):
@@ -64,6 +67,16 @@ class VanillaDQN(nn.Module):
         else:
             x = self.fc_layers(x)
 
+        if self.categorical:
+            # Reshape logits from [N, num_actions * num_atoms]
+            # to [N, num_actions, num_atoms].
+            q_value_logits = x.view(-1, self.num_actions, self.num_atoms)
+
+            # Softmax over actions.
+            q_value_dist = F.softmax(q_value_logits, dim=2)  
+
+            return q_value_dist
+
         return x
 
     def resample_noise(self):
@@ -80,6 +93,10 @@ class DuelingDQN(nn.Module):
         self.input_shape = input_shape  # In format CHW.
         self.num_actions = num_actions
         self.noisy = kwargs.pop('noisy', False)
+        self.categorical = kwargs.pop('categorical', False)
+        self.num_atoms = kwargs.pop('num_atoms', 51)
+        self.num_advantage_outputs = self.num_actions * self.num_atoms if self.categorical else self.num_actions
+        self.num_value_outputs = self.num_atoms if self.categorical else 1
 
         self.conv_features = nn.Sequential(
             nn.Conv2d(input_shape[0], conv_fmaps, kernel_size=8, stride=4),
@@ -94,19 +111,19 @@ class DuelingDQN(nn.Module):
 
         if self.noisy:
             self.fc1_advantage = NoisyLinear(flat_conv_outputs, fc_fmaps)
-            self.fc2_advantage = NoisyLinear(fc_fmaps, num_actions)
+            self.fc2_advantage = NoisyLinear(fc_fmaps, self.num_advantage_outputs)
             self.fc1_value = NoisyLinear(flat_conv_outputs, fc_fmaps)
-            self.fc2_value = NoisyLinear(fc_fmaps, 1)
+            self.fc2_value = NoisyLinear(fc_fmaps, self.num_value_outputs)
         else:
             self.advantage_stream = nn.Sequential(
                 nn.Linear(flat_conv_outputs, fc_fmaps),
                 nn.ReLU(),
-                nn.Linear(fc_fmaps, num_actions)
+                nn.Linear(fc_fmaps, self.num_advantage_outputs)
             )
             self.value_stream = nn.Sequential(
                 nn.Linear(flat_conv_outputs, fc_fmaps),
                 nn.ReLU(),
-                nn.Linear(fc_fmaps, 1)
+                nn.Linear(fc_fmaps, self.num_value_outputs)
             )
 
     def _get_flat_conv_outputs(self):
@@ -133,6 +150,18 @@ class DuelingDQN(nn.Module):
             value = self.value_stream(x)
             advantage = self.advantage_stream(x)
 
+        if self.categorical:
+            # Reshape advantange and value stream outputs from
+            # [N, num_actions * num_atoms] to [N, num_actions, num_atoms].
+            advantage = advantage.view(-1, self.num_actions, self.num_atoms)
+            value = value.view(-1, 1, self.num_atoms)
+
+            # Combine streams to get a distribution of Q-values.
+            q_value_logits = value + advantage - advantage.mean(1, keepdim=True)
+            q_value_dist = F.softmax(q_value_logits, dim=2)  # Softmax over actions.
+
+            return q_value_dist
+
         return value + advantage - advantage.mean()
 
     def resample_noise(self):
@@ -144,35 +173,38 @@ class DuelingDQN(nn.Module):
 
 
 class CNN(nn.Module):
-    def __init__(self, input_shape, num_actions, conv_fmaps=32, fc_fmaps=512, **kwargs):
+    def __init__(self, input_shape, num_actions, conv_fmaps=32, fc_fmaps=256, **kwargs):
         super(CNN, self).__init__()
 
         self.input_shape = input_shape  # In format CHW.
         self.num_actions = num_actions
         self.noisy = kwargs.pop('noisy', False)
+        self.categorical = kwargs.pop('categorical', False)
+        self.num_atoms = kwargs.pop('num_atoms', 51)
+        self.fc_output_shape = self.num_actions * self.num_atoms if self.categorical else self.num_actions
 
         # Conv. layers.
         self.conv_features = nn.Sequential(
-            nn.Conv2d(input_shape[0], 32, kernel_size=7, stride=2, padding=3),
+            nn.Conv2d(input_shape[0], conv_fmaps, kernel_size=7, stride=2, padding=3),
             nn.ELU(),
-            nn.Conv2d(32, 32, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(conv_fmaps, conv_fmaps, kernel_size=3, stride=2, padding=1),
             nn.ELU(),
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(conv_fmaps, 2 * conv_fmaps, kernel_size=3, stride=2, padding=1),
             nn.ELU(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(2 * conv_fmaps, 2 * conv_fmaps, kernel_size=3, stride=2, padding=1),
             nn.ELU(),
         )
 
         # Fully-connected layers.
         flat_conv_outputs = self._get_flat_conv_outputs()
         if self.noisy:
-            self.fc1_noisy = NoisyLinear(flat_conv_outputs, 256)
-            self.fc2_noisy = NoisyLinear(256, num_actions)
+            self.fc1_noisy = NoisyLinear(flat_conv_outputs, fc_fmaps)
+            self.fc2_noisy = NoisyLinear(fc_fmaps, self.fc_output_shape)
         else:
             self.fc_layers = nn.Sequential(
-                nn.Linear(flat_conv_outputs, 256),
+                nn.Linear(flat_conv_outputs, fc_fmaps),
                 nn.ELU(),
-                nn.Linear(256, num_actions)
+                nn.Linear(fc_fmaps, self.fc_output_shape)
             )
 
     def _get_flat_conv_outputs(self):
@@ -194,6 +226,16 @@ class CNN(nn.Module):
             x = self.fc2_noisy(x, training=training)
         else:
             x = self.fc_layers(x)
+
+        if self.categorical:
+            # Reshape logits from [N, num_actions * num_atoms]
+            # to [N, num_actions, num_atoms].
+            q_value_logits = x.view(-1, self.num_actions, self.num_atoms)
+
+            # Softmax over actions.
+            q_value_dist = F.softmax(q_value_logits, dim=2)  
+
+            return q_value_dist
 
         return x
 
