@@ -86,8 +86,11 @@ class Agent():
         # Preprocess state.
         state = self._preprocess_state(state)
 
-        self.state_history = np.roll(self.state_history, -1, axis=0)
-        self.state_history[-1] = state
+        if np.all(self.state_history == 0):  # Fill state history with observation.
+            self.state_history[:, ...] = state
+        else:  # Shift state history by one frame and put the newest frame to last channel.
+            self.state_history = np.roll(self.state_history, -1, axis=0)
+            self.state_history[-1] = state
         state = self.state_history[None, :]  # Add batch dimension.
 
         if random.random() > epsilon:  # Use Q-values.
@@ -111,9 +114,10 @@ class Agent():
         next_states = torch.from_numpy(next_states)
         dones = torch.from_numpy(dones.astype(np.float32))
 
-        if self.normalize:
+        if self.normalize:  # Normalize rewards within a minibatch.
             rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
+        # Compute loss function.
         loss, td_err = self.loss_fn(self.policy_net,
                                     self.target_net,
                                     states,

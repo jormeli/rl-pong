@@ -32,7 +32,6 @@ class ReplayBuffer(object):
         self._count = 0
         self._prioritized = prioritized
 
-
     def store_transition(self, state, action, reward, next_state, done):
         """Stores a new transition in the buffer.
         In case the buffer is already at maximum capacity, starts overwriting
@@ -42,7 +41,6 @@ class ReplayBuffer(object):
         self._buffer[self._ptr] = item
         self._ptr = (self._ptr + 1) % self._capacity
         self._count = min(self._count + 1, self._capacity)
-
 
     @property
     def count(self):
@@ -77,7 +75,6 @@ class ReplayBuffer(object):
         else:
             batch_idxs = np.random.randint(0, end_idx, size=batch_size)
 
-
         batch = self._buffer[batch_idxs].copy()
         states = batch['state']
         actions = batch['action']
@@ -86,23 +83,33 @@ class ReplayBuffer(object):
         dones = batch['done']
 
         if self._stack_size is not None:
-            stack_range = np.arange(-self._stack_size, 0)
+            stack_range = np.arange(-self._stack_size + 1, 1)
             stack_idxs = batch_idxs[:, None] + stack_range
 
             is_neg = stack_idxs < 0
             stacked_batch = self._buffer[stack_idxs].copy()
 
+            # If the buffer is not full, copy the first element of the buffer
+            # to the place of negative indiced that attempt to read the buffer circularly.
             if self.count < self.capacity:
-                stacked_batch[is_neg] = 0.
+                stacked_batch[is_neg] = self._buffer[0].copy()
 
             for item in stacked_batch:
-                # If any but the last item is done, set it and preceding items to zero.
-                # This means that those items are from a different episode.
+                # If any but the last item is done it means that those
+                # items are from a different episode. In that case, set the items
+                # from the different episode as the initial observation of the last item's episode.
                 if item['done'][:self._stack_size-1].any():
-                    done_idx = np.argmax(item['done'][::-1])
-                    zero_until = self._stack_size - done_idx
-                    item[:zero_until] = 0
+                    # Determine starting index of the episode.
+                    ep_start_idx = self._stack_size - np.argmax(item['done'][::-1])
+                    initial_state = item['state'][ep_start_idx]
+                    initial_next_state = item['next_state'][ep_start_idx]
 
+                    # Repeat initial state and next_state until the episode start
+                    # to overwrite observations from last episode.
+                    item['state'][:ep_start_idx] = initial_state
+                    item['next_state'][:ep_start_idx] = initial_next_state
+
+            # Stack frames so that newest frame is at the last channel.
             states = stacked_batch['state'].reshape((batch_size, -1) + self._state_shape[1:])
             next_states = stacked_batch['next_state'].reshape((batch_size, -1) + self._state_shape[1:])
 
