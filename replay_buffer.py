@@ -25,7 +25,7 @@ class ReplayBuffer(object):
                                        ('reward', np.float32),
                                        ('next_state', np.uint8, state_shape),
                                        ('done', np.bool),
-                                       ('td_err', np.float32)])
+                                       ('priority', np.float32)])
 
 
         self._ptr = 0
@@ -68,7 +68,7 @@ class ReplayBuffer(object):
 
         if self._prioritized:
             idxs = np.arange(end_idx, dtype=np.uint32)
-            probs = self._buffer[:end_idx]['td_err']
+            probs = self._buffer[:end_idx]['priority']
             probs = _softmax(probs / probs.max()) # Sampling probabilities must sum to 1
             assert all(probs > 0.)
             batch_idxs = np.random.choice(idxs, (batch_size,), False, probs)
@@ -115,8 +115,8 @@ class ReplayBuffer(object):
 
         return (states, actions, rewards, next_states, dones), batch_idxs
 
-    def update_td_errors(self, idxs, errs):
-        """Update TD errors for items when they are used in training.
+    def update_priorities(self, idxs, errs):
+        """Update priorities for items when they are used in training.
 
         idxs (numpy.NDArray): Corresponding indices for the new error values.
         errs (numpy.NDArray): New error values."""
@@ -124,7 +124,7 @@ class ReplayBuffer(object):
         errs = errs.reshape((-1,))
         assert len(idxs) == len(errs)
 
-        self._buffer['td_err'][idxs] = errs
+        self._buffer['priority'][idxs] = errs
 
     def reset(self):
         """Reset this buffer."""

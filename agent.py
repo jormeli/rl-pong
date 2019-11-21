@@ -118,23 +118,23 @@ class Agent():
             rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
         # Compute loss function.
-        loss, td_err = self.loss_fn(self.policy_net,
-                                    self.target_net,
-                                    states,
-                                    actions,
-                                    rewards,
-                                    next_states,
-                                    dones,
-                                    self.gamma,
-                                    self.noisy)
+        loss, priorities = self.loss_fn(self.policy_net,
+                                        self.target_net,
+                                        states,
+                                        actions,
+                                        rewards,
+                                        next_states,
+                                        dones,
+                                        self.gamma,
+                                        self.noisy)
 
         # Minimize loss w.r.t policy network.
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-        # Update TD errors.
-        self.memory.update_td_errors(idxs, td_err)
+        # Update priorities.
+        self.memory.update_priorities(idxs, priorities)
 
         if self.noisy:  # Resample noise epsilons.
             self.policy_net.resample_noise()
