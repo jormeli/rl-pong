@@ -27,6 +27,7 @@ class Agent():
                  beta0=0.9,
                  beta1=0.999,
                  learning_rate=2.5e-4,
+                 ema_decay=0.99,
                  device='cpu',
                  normalize=False,
                  prioritized=True,
@@ -45,11 +46,14 @@ class Agent():
 
         self.policy_net = network_fn(self.stacked_input_shape, num_actions, **network_fn_kwargs)
         self.target_net = network_fn(self.stacked_input_shape, num_actions, **network_fn_kwargs)
+        self.policy_net_ema = network_fn(self.stacked_input_shape, num_actions, **network_fn_kwargs)
+        self.policy_net_ema.load_state_dict(self.policy_net.state_dict())  # Load initial weights.
         self.optimizer = optim.Adam(self.policy_net.parameters(), betas=(beta0, beta1), lr=learning_rate)
         self.memory = ReplayBuffer(replay_memory_size, input_shape, (1,), prioritized=prioritized, stack_size=stack_size)
         self.minibatch_size = minibatch_size
         self.gamma = gamma
         self.normalize = normalize
+        self.ema_decay = ema_decay
         self.noisy = network_fn_kwargs.pop('noisy', False)
         self.categorical = network_fn_kwargs.pop('categorical', False)
         self.V_min = network_fn_kwargs.pop('V_min', -10.0)
@@ -101,12 +105,12 @@ class Agent():
             self.state_history[-1] = state
         state = self.state_history[None, :]  # Add batch dimension.
 
-        if random.random() > epsilon:  # Use Q-values.
+        if random.random() > epsilon:  # Use Q-values / Q-value distribution.
             with torch.no_grad():
                 state = torch.from_numpy(state)
                 if self.categorical:
                     dist = self.policy_net(state)
-                    dist = dist * torch.linspace(self.V_min, self.V_max, self.num_atoms)  # Project onto support.
+                    dist = dist * torch.linspace(self.V_min, self.V_max, self.num_atoms)
                     action = torch.argmax(dist.sum(2)).item()  # Sum over atoms.
                     return action
                 else:
@@ -157,9 +161,27 @@ class Agent():
         return loss.item()
 
     def update_target_network(self):
+        """Update target network."""
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
+    def update_ema_policy(self):
+        """Update EMA weights of policy network."""
+        # Apply EMA to current policy network weights.
+        new_ema_state_dict = {}
+        for ((name, param), (ema_name, ema_param)) in zip(self.policy_net.named_parameters(), self.policy_net_ema.named_parameters()):
+            assert name == ema_name
+            new_ema_state_dict[ema_name] = (1 - self.ema_decay) * param + self.ema_decay * ema_param
+
+        # Copy registered buffers to new state dict.
+        # These are actually newer used but required in order to update EMA model.
+        for buf_name, buf in self.policy_net.named_buffers():
+            new_ema_state_dict[buf_name] = buf
+
+        # Update EMA policy network from last update with new EMA weights.
+        self.policy_net_ema.load_state_dict(new_ema_state_dict)
+
     def store_transition(self, state, action, next_state, reward, done):
+        """Store a transition."""
         # Preprocess next state.
         state = self._preprocess_state(state)
         next_state = self._preprocess_state(next_state)
