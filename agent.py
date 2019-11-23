@@ -33,7 +33,7 @@ class Agent():
                  prioritized=True,
                  **kwargs):
 
-        self.agent_name = 'NBC-pong'
+        self.agent_name = 'NBC-labs'
         self.device = torch.device(device)
         self.input_shape = input_shape  # In CHW. (Shape of preprocessed frames)
         self.stack_size = stack_size

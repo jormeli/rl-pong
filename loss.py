@@ -59,7 +59,8 @@ def project_bellman_update(target_net,
                            dones,
                            V_min,
                            V_max,
-                           num_atoms):
+                           num_atoms,
+                           gamma):
     """L2 projection of Bellman update (Tz) onto support of current estimate
        of the distribution of returns (Z_theta)."""
 
@@ -80,7 +81,7 @@ def project_bellman_update(target_net,
         support = support.unsqueeze(0).expand_as(next_dist)
 
         # Calculate Bellman update, i.e., apply Bellman operator T on z_i's.
-        Tz = rewards + (1 - dones) * 0.99 * support
+        Tz = rewards + (1 - dones) * gamma * support
         Tz = Tz.clamp(min=V_min, max=V_max)  # Clamp within the support.
 
         # L2 project Tz to the support of z.
@@ -92,7 +93,7 @@ def project_bellman_update(target_net,
         indices = indices.unsqueeze(1).expand(batch_size, num_atoms)
 
         # Distribute probability mass of Tz.
-        m = torch.zeros(next_dist.size())
+        m = torch.zeros_like(next_dist)
         m.view(-1).index_add_(0, (l + indices).view(-1), (next_dist * (u.float() - b)).view(-1))  # m_l = m_l + p_j(s_t, a^*)(u - b_j)
         m.view(-1).index_add_(0, (u + indices).view(-1), (next_dist * (b - l.float())).view(-1))  # m_u = m_u + p_j(s_t, a^*)(b_j - l)
 
@@ -122,7 +123,8 @@ def categorical_loss(policy_net,
                                dones,
                                V_min,
                                V_max,
-                               num_atoms)
+                               num_atoms,
+                               gamma)
 
     # Get current estimate of the distribution of returns.
     dist = policy_net(states)
@@ -131,11 +133,11 @@ def categorical_loss(policy_net,
     # lookup corresponding probabilities of p_i(x_t, a_t).
     act = actions.unsqueeze(1).expand(batch_size, 1, num_atoms)
     dist = dist.gather(1, act).squeeze(1)
-    dist.data.clamp_(0.001, 0.999)  # Ensure valid probability distribution.
+    dist.data.clamp_(0.01, 0.99)  # Ensure valid probability distribution.
 
     # Mean cross-entropy loss, minimizes KL-divergence between
     # projected distribution and current distribution of returns.
     loss = -(m * dist.log()).sum(1).mean()
-    priorities = (m * dist.log()).detach().sum(1).numpy()
+    priorities = -(m * dist.log()).detach().sum(1).numpy()
 
     return loss, priorities
