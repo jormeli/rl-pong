@@ -55,6 +55,7 @@ if __name__ == "__main__":
                                 run_func_args.num_episodes = 25000000
                                 run_func_args.start_training_at_frame = 50000
                                 run_func_args.target_epsilon = eps
+                                run_func_args.beta_0 = 0.4
                                 run_func_args.reach_target_at_frame = 1.5e6
                                 run_func_args.model_update_freq = 4
                                 run_func_args.target_update_freq = 8000

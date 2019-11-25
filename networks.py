@@ -72,7 +72,7 @@ class VanillaDQN(nn.Module):
             # to [N, num_actions, num_atoms].
             q_value_logits = x.view(-1, self.num_actions, self.num_atoms)
 
-            # Softmax over actions.
+            # Softmax over atoms.
             q_value_dist = F.softmax(q_value_logits, dim=2)  
 
             return q_value_dist
@@ -158,7 +158,7 @@ class DuelingDQN(nn.Module):
 
             # Combine streams to get a distribution of Q-values.
             q_value_logits = value + advantage - advantage.mean(1, keepdim=True)
-            q_value_dist = F.softmax(q_value_logits, dim=2)  # Softmax over actions.
+            q_value_dist = F.softmax(q_value_logits, dim=2)  # Softmax over atoms.
 
             return q_value_dist
 
@@ -232,7 +232,7 @@ class CNN(nn.Module):
             # to [N, num_actions, num_atoms].
             q_value_logits = x.view(-1, self.num_actions, self.num_atoms)
 
-            # Softmax over actions.
+            # Softmax over atoms.
             q_value_dist = F.softmax(q_value_logits, dim=2)  
 
             return q_value_dist

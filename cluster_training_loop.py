@@ -33,9 +33,15 @@ def epsilon_schedule(frames_seen, target_epsilon, reach_target_at_frame):
     return np.exp(-decay * frames_seen)
 
 
+def beta_schedule(frame, beta_0, reach_target_at_frame):
+    """Linearly anneal beta from beta_0 to one."""
+    return min(1.0, (1 - beta_0) / reach_target_at_frame * frame + beta_0)
+
+
 def training_loop(submit_config,
                   num_episodes,
                   target_epsilon,
+                  beta_0,
                   reach_target_at_frame,
                   player_id,
                   start_training_at_frame,
@@ -95,8 +101,10 @@ def training_loop(submit_config,
         losses = []
         reward_sum = 0.0
 
-        # Compute new epsilon.
+        # Compute new epsilon and beta.
         epsilon = epsilon_schedule(frames_seen, target_epsilon, reach_target_at_frame)
+        beta = beta_schedule(frames_seen, beta_0, reach_target_at_frame)
+        print(beta)
 
         start = time.time()
         while not done:
@@ -118,7 +126,7 @@ def training_loop(submit_config,
             if frames_seen > start_training_at_frame:
                 if frames_seen % model_update_freq == model_update_freq - 1:
                     # Update policy network.
-                    loss = agent.compute_loss()
+                    loss = agent.compute_loss(beta=beta)
 
                     # Update EMA network.
                     agent.update_ema_policy()
@@ -178,7 +186,7 @@ def training_loop(submit_config,
             writer.add_scalar('Episode/Loss', np.mean(losses), ep)
 
             # Show random batch of states.
-            (state_batch, _, _, _, _), _  = agent.memory.sample_batch(5)
+            (state_batch, _, _, _, _), _, _  = agent.memory.sample_batch(5)
             n, c, h, w = state_batch.shape
             state_batch = state_batch.reshape(n * c, h, w)[:, None, :, :]
             writer.add_images('ReplayBuffer/Sample states', state_batch, ep)

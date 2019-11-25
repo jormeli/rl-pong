@@ -54,10 +54,12 @@ class ReplayBuffer(object):
 
         return self._capacity
 
-    def sample_batch(self, batch_size):
+    def sample_batch(self, batch_size, beta=1.0):
         """Sample a batch of items from this buffer.
 
-        batch_size (int): Size of the batch to be sampled."""
+        batch_size (int): Size of the batch to be sampled.
+        beta (float): Shape parameter for importance sampling.
+        """
 
         def _softmax(x):
             x = np.exp(x)
@@ -113,7 +115,11 @@ class ReplayBuffer(object):
             states = stacked_batch['state'].reshape((batch_size, -1) + self._state_shape[1:])
             next_states = stacked_batch['next_state'].reshape((batch_size, -1) + self._state_shape[1:])
 
-        return (states, actions, rewards, next_states, dones), batch_idxs
+        # Determine sample weights.
+        weights  = (self.count * probs[batch_idxs])**-beta
+        weights /= weights.max()
+
+        return (states, actions, rewards, next_states, dones), batch_idxs, weights
 
     def update_priorities(self, idxs, errs):
         """Update priorities for items when they are used in training.

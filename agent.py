@@ -119,11 +119,11 @@ class Agent():
         else:  # Select action uniform random.
             return random.randrange(self.num_actions)
 
-    def compute_loss(self):
+    def compute_loss(self, beta=None):
         """Compute loss function and update parameters."""
         # Sample a minibatch of observations.
-        (states, actions, rewards, next_states, dones), idxs  = \
-                self.memory.sample_batch(self.minibatch_size)
+        (states, actions, rewards, next_states, dones), idxs, weights  = \
+                self.memory.sample_batch(self.minibatch_size, beta=beta)
 
         # Extract states, next_states, rewards, done signals from transitions.
         states = torch.from_numpy(states)
@@ -131,6 +131,7 @@ class Agent():
         rewards = torch.from_numpy(rewards.copy())
         next_states = torch.from_numpy(next_states)
         dones = torch.from_numpy(dones.astype(np.float32))
+        weights = torch.from_numpy(weights.astype(np.float32))
 
         if self.normalize:  # Normalize rewards within a minibatch.
             rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
@@ -143,6 +144,7 @@ class Agent():
                                         rewards,
                                         next_states,
                                         dones,
+                                        weights,
                                         self.gamma,
                                         self.noisy)
 
