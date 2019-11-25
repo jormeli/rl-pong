@@ -104,7 +104,6 @@ def training_loop(submit_config,
         # Compute new epsilon and beta.
         epsilon = epsilon_schedule(frames_seen, target_epsilon, reach_target_at_frame)
         beta = beta_schedule(frames_seen, beta_0, reach_target_at_frame)
-        print(beta)
 
         start = time.time()
         while not done:
