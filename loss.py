@@ -68,39 +68,40 @@ def project_bellman_update(target_net,
     """L2 projection of Bellman update (Tz) onto support of current estimate
        of the distribution of returns (Z_theta)."""
 
-    batch_size  = next_states.shape[0]
+    with torch.no_grad():
+        batch_size  = next_states.shape[0]
 
-    delta_z = (V_max - V_min) / (num_atoms - 1)
-    support = torch.linspace(V_min, V_max, num_atoms)
+        delta_z = (V_max - V_min) / (num_atoms - 1)
+        support = torch.linspace(V_min, V_max, num_atoms)
 
-    next_dist = target_net(next_states) * support
-    next_action = next_dist.sum(2).max(1)[1]
-    next_action = next_action.unsqueeze(1).unsqueeze(1).expand(next_dist.size(0), 1, next_dist.size(2))
-    next_dist = next_dist.gather(1, next_action).squeeze(1)
+        next_dist = target_net(next_states) * support
+        next_action = next_dist.sum(2).max(1)[1]
+        next_action = next_action.unsqueeze(1).unsqueeze(1).expand(next_dist.size(0), 1, next_dist.size(2))
+        next_dist = next_dist.gather(1, next_action).squeeze(1)
 
-    # Reshape rewards, dones and support to contain dimension for z_i's (num_atoms).
-    rewards = rewards.unsqueeze(1).expand_as(next_dist)
-    dones = dones.unsqueeze(1).expand_as(next_dist)
-    support = support.unsqueeze(0).expand_as(next_dist)
+        # Reshape rewards, dones and support to contain dimension for z_i's (num_atoms).
+        rewards = rewards.unsqueeze(1).expand_as(next_dist)
+        dones = dones.unsqueeze(1).expand_as(next_dist)
+        support = support.unsqueeze(0).expand_as(next_dist)
 
-    # Calculate Bellman update, i.e., apply Bellman operator T on z_i's.
-    Tz = rewards + (1 - dones) * gamma * support
-    Tz = Tz.clamp(min=V_min, max=V_max)  # Clamp within the support.
+        # Calculate Bellman update, i.e., apply Bellman operator T on z_i's.
+        Tz = rewards + (1 - dones) * gamma * support
+        Tz = Tz.clamp(min=V_min, max=V_max)  # Clamp within the support.
 
-    # L2 project Tz to the support of z.
-    b  = (Tz - V_min) / delta_z
-    l  = b.floor().long()
-    u  = b.ceil().long()
+        # L2 project Tz to the support of z.
+        b  = (Tz - V_min) / delta_z
+        l  = b.floor().long()
+        u  = b.ceil().long()
 
-    indices = torch.linspace(0, (batch_size - 1) * num_atoms, batch_size).long()
-    indices = indices.unsqueeze(1).expand(batch_size, num_atoms)
+        indices = torch.linspace(0, (batch_size - 1) * num_atoms, batch_size).long()
+        indices = indices.unsqueeze(1).expand(batch_size, num_atoms)
 
-    # Distribute probability mass of Tz.
-    m = torch.zeros_like(next_dist)
-    m.view(-1).index_add_(0, (l + indices).view(-1), (next_dist * (u.float() - b)).view(-1))  # m_l = m_l + p_j(s_t, a^*)(u - b_j)
-    m.view(-1).index_add_(0, (u + indices).view(-1), (next_dist * (b - l.float())).view(-1))  # m_u = m_u + p_j(s_t, a^*)(b_j - l)
+        # Distribute probability mass of Tz.
+        m = torch.zeros_like(next_dist)
+        m.view(-1).index_add_(0, (l + indices).view(-1), (next_dist * (u.float() - b)).view(-1))  # m_l = m_l + p_j(s_t, a^*)(u - b_j)
+        m.view(-1).index_add_(0, (u + indices).view(-1), (next_dist * (b - l.float())).view(-1))  # m_u = m_u + p_j(s_t, a^*)(b_j - l)
 
-    return m
+        return m
 
 
 def categorical_loss(policy_net,
@@ -121,14 +122,14 @@ def categorical_loss(policy_net,
     batch_size = states.shape[0]
 
     # Compute Tz projected onto the support of z.
-    m = project_bellman_update(target_net,
-                               next_states,
-                               rewards,
-                               dones,
-                               V_min,
-                               V_max,
-                               num_atoms,
-                               gamma)
+    target_dist = project_bellman_update(target_net,
+                                         next_states,
+                                         rewards,
+                                         dones,
+                                         V_min,
+                                         V_max,
+                                         num_atoms,
+                                         gamma)
 
     # Get current estimate of the distribution of returns.
     dist = policy_net(states)
@@ -141,7 +142,7 @@ def categorical_loss(policy_net,
 
     # Mean cross-entropy loss, minimizes KL-divergence between
     # projected distribution and current distribution of returns.
-    loss = -(m * dist.log()).sum(1)
+    loss = -(target_dist * dist.log()).sum(1)
     priorities = loss.detach().numpy()
     loss = (weights * loss).mean()
 
