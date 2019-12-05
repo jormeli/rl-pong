@@ -15,12 +15,12 @@ from replay_buffer import ReplayBuffer
 
 class Agent():
     def __init__(self,
-                 input_shape,
-                 num_actions,
+                 input_shape=(1, 84, 84),
+                 num_actions=3,
                  network_fn=DuelingDQN,
-                 network_fn_kwargs=None,
-                 loss_fn=double_dqn_loss,
-                 minibatch_size=128,
+                 network_fn_kwargs={'noisy': True},
+                 loss_fn=td_loss,
+                 minibatch_size=32,
                  replay_memory_size=1000000,
                  stack_size=4,
                  gamma=0.99,
@@ -93,7 +93,7 @@ class Agent():
 
         return state
 
-    def get_action(self, state, epsilon=0.1):
+    def get_action(self, state, epsilon=0.0):
         """Determine action for a given state."""
         # Preprocess state.
         state = self._preprocess_state(state)
@@ -109,7 +109,7 @@ class Agent():
             with torch.no_grad():
                 state = torch.from_numpy(state)
                 if self.categorical:
-                    dist = self.policy_net(state)
+                    dist = self.policy_net(state, training=False)
                     dist = dist * torch.linspace(self.V_min, self.V_max, self.num_atoms)
                     action = torch.argmax(dist.sum(2)).item()  # Sum over atoms.
                     return action
