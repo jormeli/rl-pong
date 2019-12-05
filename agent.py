@@ -78,7 +78,7 @@ class Agent():
         """Returns the name of the agent."""
         return self.agent_name
 
-    def load_model(self, model_path):
+    def load_model(self, model_path='ema_agent_dueling_dqn_ep16250.mdl'):
         """Loads model's parameters from path."""
         self.policy_net.load_state_dict(torch.load(model_path, map_location=self.device))
         print(self.policy_net.eval())
